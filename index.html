@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Romagna Mia">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#d32f2f">
+    <title>Romagna Mia - Piadineria a Galway</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="manifest" href="manifest.json">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <nav class="navbar">
+            <div class="nav-brand">
+                <div class="logo-container">
+                    <img src="logo.png" alt="Romagna Mia Logo" class="logo">
+                    <div class="brand-text">
+                        <h1>Romagna Mia</h1>
+                        <p>Piadineria Italiana a Galway</p>
+                    </div>
+                </div>
+            </div>
+            <button class="menu-toggle" id="menuToggle">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+        </nav>
+        <div class="nav-menu" id="navMenu">
+            <a href="#home" class="nav-link">Home</a>
+            <a href="#menu" class="nav-link">Menu</a>
+            <a href="#about" class="nav-link">Chi Siamo</a>
+            <a href="#location" class="nav-link">Dove Siamo</a>
+            <a href="#contact" class="nav-link">Contatti</a>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section id="home" class="hero">
+        <div class="hero-content">
+            <h1>Benvenuti alla Romagna Mia</h1>
+            <p>Le autentiche piadine romagnole nel cuore di Galway</p>
+            <button class="cta-button" onclick="scrollToSection('menu')">Scopri il Menu</button>
+        </div>
+        <div class="hero-image">
+            <img src="logo.png" alt="Romagna Mia Logo" class="hero-logo">
+        </div>
+    </section>
+
+    <!-- Menu Section -->
+    <section id="menu" class="menu-section">
+        <div class="container">
+            <h2>Il Nostro Menu</h2>
+            <div class="menu-categories">
+                <div class="menu-category">
+                    <h3>🥙 Piadine Classiche</h3>
+                    <div class="menu-items">
+                        <div class="menu-item">
+                            <div class="item-info">
+                                <h4>Piadina Prosciutto e Squacquerone</h4>
+                                <p>Prosciutto di Parma, squacquerone di Romagna, rucola</p>
+                            </div>
+                            <span class="price">€8.50</span>
+                        </div>
+                        <div class="menu-item">
+                            <div class="item-info">
+                                <h4>Piadina Mortadella e Pistacchi</h4>
+                                <p>Mortadella di Bologna, crema di pistacchi, stracciatella</p>
+                            </div>
+                            <span class="price">€9.00</span>
+                        </div>
+                        <div class="menu-item">
+                            <div class="item-info">
+                                <h4>Piadina Crudo e Bufala</h4>
+                                <p>Prosciutto crudo, mozzarella di bufala, pomodorini</p>
+                            </div>
+                            <span class="price">€10.00</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="menu-category">
+                    <h3>🧀 Piadine Vegetariane</h3>
+                    <div class="menu-items">
+                        <div class="menu-item">
+                            <div class="item-info">
+                                <h4>Piadina Caprese</h4>
+                                <p>Mozzarella fresca, pomodori, basilico, olio EVO</p>
+                            </div>
+                            <span class="price">€7.50</span>
+                        </div>
+                        <div class="menu-item">
+                            <div class="item-info">
+                                <h4>Piadina Zucchine e Pecorino</h4>
+                                <p>Zucchine grigliate, pecorino stagionato, menta</p>
+                            </div>
+                            <span class="price">€8.00</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="menu-category">
+                    <h3>🍰 Piadine Dolci</h3>
+                    <div class="menu-items">
+                        <div class="menu-item">
+                            <div class="item-info">
+                                <h4>Piadina Nutella e Banana</h4>
+                                <p>Nutella, banana fresca, granella di nocciole</p>
+                            </div>
+                            <span class="price">€6.00</span>
+                        </div>
+                        <div class="menu-item">
+                            <div class="item-info">
+                                <h4>Piadina Mascarpone e Fragole</h4>
+                                <p>Mascarpone, fragole fresche, miele di acacia</p>
+                            </div>
+                            <span class="price">€6.50</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section -->
+    <section id="about" class="about-section">
+        <div class="container">
+            <h2>La Nostra Storia</h2>
+            <div class="about-content">
+                <div class="about-text">
+                    <p>Siamo una famiglia romagnola che ha portato le tradizioni culinarie della nostra terra nel cuore dell'Irlanda. Le nostre piadine sono preparate con ingredienti freschi e autentici, importati direttamente dall'Italia.</p>
+                    <p>Ogni piadina è fatta a mano seguendo le ricette tradizionali della Romagna, per offrirti un'esperienza gastronomica autentica anche qui a Galway.</p>
+                </div>
+                <div class="about-features">
+                    <div class="feature">
+                        <span class="feature-icon">🇮🇹</span>
+                        <h4>Ingredienti Italiani</h4>
+                        <p>Solo prodotti DOP e IGP</p>
+                    </div>
+                    <div class="feature">
+                        <span class="feature-icon">👨‍🍳</span>
+                        <h4>Ricette Tradizionali</h4>
+                        <p>Tramandate di generazione</p>
+                    </div>
+                    <div class="feature">
+                        <span class="feature-icon">🥙</span>
+                        <h4>Fatto Fresco</h4>
+                        <p>Preparato al momento</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Location Section -->
+    <section id="location" class="location-section">
+        <div class="container">
+            <h2>Dove Trovarci</h2>
+            <div class="location-content">
+                <div class="location-info">
+                    <h3>📍 Galway City Centre</h3>
+                    <p class="address">Shop Street, Galway<br>Irlanda</p>
+                    <div class="hours">
+                        <h4>Orari di Apertura:</h4>
+                        <div class="schedule">
+                            <div class="day">
+                                <span>Lun - Ven</span>
+                                <span>11:00 - 22:00</span>
+                            </div>
+                            <div class="day">
+                                <span>Sabato</span>
+                                <span>10:00 - 23:00</span>
+                            </div>
+                            <div class="day">
+                                <span>Domenica</span>
+                                <span>12:00 - 21:00</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="map-placeholder">
+                    <div class="map-icon">🗺️</div>
+                    <p>Mappa interattiva</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Contact Section -->
+    <section id="contact" class="contact-section">
+        <div class="container">
+            <h2>Contattaci</h2>
+            <div class="contact-content">
+                <div class="contact-info">
+                    <div class="contact-item">
+                        <span class="contact-icon">📞</span>
+                        <div>
+                            <h4>Telefono</h4>
+                            <p>+353 91 XXX XXX</p>
+                        </div>
+                    </div>
+                    <div class="contact-item">
+                        <span class="contact-icon">📧</span>
+                        <div>
+                            <h4>Email</h4>
+                            <p>info@romagnamia.ie</p>
+                        </div>
+                    </div>
+                    <div class="contact-item">
+                        <span class="contact-icon">📱</span>
+                        <div>
+                            <h4>Social Media</h4>
+                            <p>@romagnamia_galway</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="contact-form">
+                    <h3>Prenota un Tavolo</h3>
+                    <form id="bookingForm">
+                        <input type="text" placeholder="Nome" required>
+                        <input type="email" placeholder="Email" required>
+                        <input type="tel" placeholder="Telefono" required>
+                        <input type="datetime-local" placeholder="Data e Ora" required>
+                        <select required>
+                            <option value="">Numero persone</option>
+                            <option value="1">1 persona</option>
+                            <option value="2">2 persone</option>
+                            <option value="3">3 persone</option>
+                            <option value="4">4 persone</option>
+                            <option value="5+">5+ persone</option>
+                        </select>
+                        <textarea placeholder="Note aggiuntive"></textarea>
+                        <button type="submit">Prenota Ora</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <h3>Romagna Mia</h3>
+                    <p>Il sapore autentico della Romagna a Galway</p>
+                </div>
+                <div class="footer-links">
+                    <h4>Seguici</h4>
+                    <div class="social-links">
+                        <a href="#" class="social-link">📘 Facebook</a>
+                        <a href="#" class="social-link">📷 Instagram</a>
+                        <a href="#" class="social-link">🐦 Twitter</a>
+                    </div>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2024 Romagna Mia. Tutti i diritti riservati.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
