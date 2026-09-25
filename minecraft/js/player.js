@@ -166,7 +166,7 @@
       this.horizCollide = false;
     }
 
-    get eyeHeight() { return this.sneaking && !this.flying ? 1.27 : 1.62; }
+    get eyeHeight() { return this.eyeH === undefined ? 1.62 : this.eyeH; }
     get eye() { return [this.x, this.y + this.eyeHeight, this.z]; }
     dir() {
       const cp = Math.cos(this.pitch);
@@ -206,6 +206,9 @@
       if (this.inWater && !wasInWater && this.vy < -6 && this.onSplash) this.onSplash();
 
       const creative = this.mode === 'creative';
+      const targetEye = this.sneaking && !this.flying ? 1.27 : 1.62;
+      if (this.eyeH === undefined) this.eyeH = targetEye;
+      this.eyeH += (targetEye - this.eyeH) * Math.min(1, dt * 14);
       if (!creative) this.flying = false;
       this.sneaking = !!input.sneak && !this.flying;
 
@@ -273,6 +276,15 @@
       if (r.hitZ && !guard) this.vz = 0;
       if (guard) { if (r.hitX) this.vx = 0; if (r.hitZ) this.vz = 0; }
       this.horizCollide = r.hitX || r.hitZ;
+      // salto automatico sui gradini di un blocco
+      if (this.horizCollide && input.autoJump && this.onGround && !this.flying && !this.inWater && ml > 0.3 && !guard) {
+        const ax = Math.floor(this.x + mx * 0.55 / (ml || 1)), az = Math.floor(this.z + mz * 0.55 / (ml || 1));
+        const fy = Math.floor(this.y + 0.01);
+        const sol = (y) => { const b = world.getBlock(ax, y, az); return SOLID[b] && MC.getCollisionBox(b); };
+        if (sol(fy) && !sol(fy + 1) && !sol(fy + 2) && !SOLID[world.getBlock(Math.floor(this.x), fy + 2, Math.floor(this.z))]) {
+          this.vy = 8.4; this.lastJump = performance.now();
+        }
+      }
       const wasGround = this.onGround;
       this.onGround = r.onGround;
       if (r.hitY) {

@@ -99,6 +99,9 @@
       toggle('s-mobs', 'mobs', 'Creature', 'Sì', 'No');
       toggle('s-invert', 'invert', 'Inverti mouse', 'Sì', 'No');
       toggle('s-weather', 'weather', 'Meteo', 'Sì', 'No');
+      toggle('s-autojump', 'autoJump', 'Salto automatico', 'Sì', 'No');
+      toggle('s-shaders', 'shaders', 'Shader', 'Sì', 'No');
+      toggle('s-shadows', 'shadows', 'Ombre', 'Sì', 'No');
 
       // inventario
       $('inv-search').addEventListener('input', () => this._renderCreative());

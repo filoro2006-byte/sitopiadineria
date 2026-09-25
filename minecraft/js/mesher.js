@@ -30,12 +30,12 @@
       this.u8.set(old.subarray(0, n * STRIDE));
       this.n = n;
     }
-    v(x, y, z, layer, u, vv, flags, shade, sky, blk, r, g, b, mode) {
+    v(x, y, z, layer, u, vv, flags, shade, sky, blk, r, g, b, mode, nrm) {
       const o = this.n * STRIDE, h = o >> 1;
       const i16 = this.i16, u8 = this.u8;
       i16[h] = Math.round(x * POS); i16[h + 1] = Math.round(y * POS); i16[h + 2] = Math.round(z * POS); i16[h + 3] = layer;
       u8[o + 8] = Math.round(u * 16); u8[o + 9] = Math.round(vv * 16); u8[o + 10] = flags; u8[o + 11] = shade;
-      u8[o + 12] = sky; u8[o + 13] = blk; u8[o + 14] = 0; u8[o + 15] = 0;
+      u8[o + 12] = sky; u8[o + 13] = blk; u8[o + 14] = nrm === undefined ? 7 : nrm; u8[o + 15] = 0;
       u8[o + 16] = r; u8[o + 17] = g; u8[o + 18] = b; u8[o + 19] = mode;
       this.n++;
     }
@@ -217,7 +217,7 @@
         px = cr[0] ? box[3] : box[0]; py = cr[1] ? box[4] : box[1]; pz = cr[2] ? box[5] : box[2];
       }
       const shade = Math.round(255 * fs * AO_MUL[aoV[c]]);
-      bld.v(x + px, y + py, z + pz, layer, u, v, flags, shade, skV[c], blV[c], t[0], t[1], t[2], t[3]);
+      bld.v(x + px, y + py, z + pz, layer, u, v, flags, shade, skV[c], blV[c], t[0], t[1], t[2], t[3], f);
     }
   }
 
@@ -272,15 +272,15 @@
     for (const [x0, z0, x1, z1] of planes) {
       const X0 = x + x0 + ox, Z0 = z + z0 + oz, X1 = x + x1 + ox, Z1 = z + z1 + oz;
       // fronte
-      solidB.v(X0, y, Z0, layer, 0, 0, 0, shade, sk, bl, tint[0], tint[1], tint[2], tint[3]);
-      solidB.v(X1, y, Z1, layer, 1, 0, 0, shade, sk, bl, tint[0], tint[1], tint[2], tint[3]);
-      solidB.v(X1, y + hgt, Z1, layer, 1, 1, wave, shade, sk, bl, tint[0], tint[1], tint[2], tint[3]);
-      solidB.v(X0, y + hgt, Z0, layer, 0, 1, wave, shade, sk, bl, tint[0], tint[1], tint[2], tint[3]);
+      solidB.v(X0, y, Z0, layer, 0, 0, 0, shade, sk, bl, tint[0], tint[1], tint[2], tint[3], 6);
+      solidB.v(X1, y, Z1, layer, 1, 0, 0, shade, sk, bl, tint[0], tint[1], tint[2], tint[3], 6);
+      solidB.v(X1, y + hgt, Z1, layer, 1, 1, wave, shade, sk, bl, tint[0], tint[1], tint[2], tint[3], 6);
+      solidB.v(X0, y + hgt, Z0, layer, 0, 1, wave, shade, sk, bl, tint[0], tint[1], tint[2], tint[3], 6);
       // retro
-      solidB.v(X1, y, Z1, layer, 1, 0, 0, shade, sk, bl, tint[0], tint[1], tint[2], tint[3]);
-      solidB.v(X0, y, Z0, layer, 0, 0, 0, shade, sk, bl, tint[0], tint[1], tint[2], tint[3]);
-      solidB.v(X0, y + hgt, Z0, layer, 0, 1, wave, shade, sk, bl, tint[0], tint[1], tint[2], tint[3]);
-      solidB.v(X1, y + hgt, Z1, layer, 1, 1, wave, shade, sk, bl, tint[0], tint[1], tint[2], tint[3]);
+      solidB.v(X1, y, Z1, layer, 1, 0, 0, shade, sk, bl, tint[0], tint[1], tint[2], tint[3], 6);
+      solidB.v(X0, y, Z0, layer, 0, 0, 0, shade, sk, bl, tint[0], tint[1], tint[2], tint[3], 6);
+      solidB.v(X0, y + hgt, Z0, layer, 0, 1, wave, shade, sk, bl, tint[0], tint[1], tint[2], tint[3], 6);
+      solidB.v(X1, y + hgt, Z1, layer, 1, 1, wave, shade, sk, bl, tint[0], tint[1], tint[2], tint[3], 6);
     }
   }
 
@@ -309,7 +309,7 @@
         else if (f === 3) { u = 7 / 16 + UV[k][0] * 2 / 16; v = UV[k][1] * 2 / 16; }
         else { u = 7 / 16 + UV[k][0] * 2 / 16; v = UV[k][1] * 10 / 16; }
         const q = tf(px, py, pz);
-        solidB.v(q[0], q[1], q[2], layer, u, v, 8, Math.round(255 * FACE_SHADE[f]), sk, bl, 255, 255, 255, 0);
+        solidB.v(q[0], q[1], q[2], layer, u, v, 8, Math.round(255 * FACE_SHADE[f]), sk, bl, 255, 255, 255, 0, 7);
       }
     }
   }
@@ -374,7 +374,7 @@
         let u = UV[k][0], v = UV[k][1];
         if (f !== 2 && f !== 3) v = cr[1] ? y1 : y0;
         const fl = flags | (f === 2 && water ? 4 : 0);
-        bld.v(x + cr[0], y + py, z + cr[2], layer, u, v, fl, shade, sk, bl, 255, 255, 255, 0);
+        bld.v(x + cr[0], y + py, z + cr[2], layer, u, v, fl, shade, sk, bl, 255, 255, 255, 0, f);
       }
     }
   }

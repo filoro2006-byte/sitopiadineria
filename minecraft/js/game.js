@@ -9,7 +9,7 @@
 
   const DEFAULTS = {
     renderDist: 8, fov: 72, sens: 100, volume: 60, bright: 40, scale: 100,
-    fancyLeaves: true, clouds: true, bob: true, mobs: true, invert: false, weather: true,
+    fancyLeaves: true, clouds: true, bob: true, mobs: true, invert: false, weather: true, autoJump: true, shaders: true, shadows: true,
   };
 
   const MOVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'KeyR']);
@@ -83,7 +83,7 @@
       let raw = null;
       try { raw = localStorage.getItem('blockcraft-settings'); s = JSON.parse(raw || '{}') || {}; } catch (e) { s = {}; }
       const base = Object.assign({}, DEFAULTS);
-      if (!raw && MC.Touch && MC.Touch.isTouchDevice()) { base.renderDist = 5; base.scale = 75; base.fancyLeaves = false; }
+      if (!raw && MC.Touch && MC.Touch.isTouchDevice()) { base.renderDist = 5; base.scale = 75; base.fancyLeaves = false; base.shaders = false; base.shadows = false; }
       return Object.assign(base, s);
     }
     saveSettings() {
@@ -280,6 +280,8 @@
       w.onSaveChunk = (k, data) => this.storage.saveChunk(meta.id, k, data);
       w.onUnload = (c) => this.renderer.freeChunk(c);
       w.onDrop = (id, x, y, z) => this._naturalDrop(id, x, y, z);
+      const tw = await MC.createTerrainWorker(meta.seed, meta.type);
+      if (tw) w.attachWorker(tw);
       this.world = w;
       const p = this.player;
       p.mode = meta.mode;
@@ -390,7 +392,7 @@
     async quitToMenu() {
       this.autosave();
       this.unlockPointer();
-      if (this.world) for (const c of this.world.chunks.values()) this.renderer.freeChunk(c);
+      if (this.world) { for (const c of this.world.chunks.values()) this.renderer.freeChunk(c); this.world.destroy(); }
       this.world = null;
       this.meta = null;
       this.entities.clear();
@@ -469,6 +471,7 @@
         jump: k.has('Space'),
         sneak: k.has('ShiftLeft') || k.has('ShiftRight'),
         sprint: k.has('ControlLeft') || k.has('ControlRight') || k.has('KeyR') || this.sprintTap || (t && t.fw > 0.97),
+        autoJump: this.settings.autoJump,
       };
     }
 
@@ -510,8 +513,11 @@
       if (this.shake > 0) this.shake = Math.max(0, this.shake - dt * 1.5);
 
       // caricamento chunk e mesh
-      w.updateLoading(p.x, p.z, 5);
-      this.renderer.updateMeshes(w, p, 6, { fancyLeaves: this.settings.fancyLeaves });
+      // budget adattivo: se il frame è lento, meno lavoro di caricamento
+      this.ft = this.ft === undefined ? dt : this.ft * 0.9 + dt * 0.1;
+      const slow = this.ft > 1 / 45;
+      w.updateLoading(p.x, p.z, slow ? 1.5 : 3.5);
+      this.renderer.updateMeshes(w, p, slow ? 2 : 4, { fancyLeaves: this.settings.fancyLeaves });
       this.unloadTimer += dt;
       if (this.unloadTimer > 1) { this.unloadTimer = 0; w.unloadFar(p.x, p.z); }
       this.saveTimer += dt;
@@ -932,12 +938,18 @@
         fov: this.settings.fov * p.fovMod,
         brightness: this.settings.bright / 100,
       };
+      r.fx.shaders = !!this.settings.shaders;
+      r.fx.shadows = !!this.settings.shadows;
+      r.fx.shadowSize = this.touchMode ? 1024 : 2048;
+      r.setupCamera(cam);
+      r.renderShadows(w, cam, env, tsec);
+      r.beginScene();
+      gl.viewport(0, 0, r.canvas.width, r.canvas.height);
       gl.clearColor(env.fogCol[0], env.fogCol[1], env.fogCol[2], 1);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       gl.enable(gl.DEPTH_TEST);
       gl.depthFunc(gl.LEQUAL);
       gl.enable(gl.CULL_FACE);
-      r.setupCamera(cam);
       r.drawSky(env);
       r.drawWorld(w, env, cam, tsec);
       this.entities.render(r, env, cam, w, tsec);
@@ -965,6 +977,7 @@
       this._renderWeather(env, cam, tsec);
       if (this.target && this.state !== 'dead' && !this.hudHidden) r.drawSelection(this.target.box, cam);
       if (!this.hudHidden && this.state !== 'dead') this._renderHand(env, cam, dt);
+      r.endScene(env, tsec);
     }
 
     _renderWeather(env, cam, tsec) {

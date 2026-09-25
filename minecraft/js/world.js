@@ -78,6 +78,29 @@
       this.offsets = [];
       this._buildOffsets(32);
       this.dirtySave = new Set();
+      this.worker = null;
+      this.pending = new Map(); // chiave -> tempo della richiesta
+    }
+
+    // Generazione del terreno in un Web Worker (se disponibile)
+    attachWorker(worker) {
+      this.worker = worker;
+      worker.onmessage = (e) => {
+        const d = e.data;
+        const k = ckey(d.cx, d.cz);
+        if (!this.pending.has(k)) return;
+        this.pending.delete(k);
+        if (this.chunks.has(k)) return;
+        const c = new Chunk(d.cx, d.cz);
+        c.blocks = d.blocks; c.biome = d.biome; c.grass = d.grass; c.foliage = d.foliage; c.surf = d.surf; c.surfId = d.surfId;
+        c.state = ST.TERRAIN;
+        this.chunks.set(k, c);
+        this._resetCache();
+      };
+      worker.onerror = () => { this.worker = null; this.pending.clear(); };
+    }
+    destroy() {
+      if (this.worker) { try { this.worker.terminate(); } catch (e) { /* ignora */ } this.worker = null; }
     }
 
     _buildOffsets(r) {
@@ -171,13 +194,25 @@
       const pcx = Math.floor(px) >> 4, pcz = Math.floor(pz) >> 4;
       const R = this.renderDist;
       let work = 0;
+      if (this.pending.size) {
+        const now = performance.now();
+        for (const [k, t] of this.pending) if (now - t > 15000) this.pending.delete(k);
+      }
       for (let oi = 0; oi < this.offsets.length; oi++) {
         const o = this.offsets[oi];
         const d = o[2];
         if (d > R + 3) break;
         const cx = pcx + o[0], cz = pcz + o[1];
-        let c = this.chunks.get(ckey(cx, cz));
+        const key = ckey(cx, cz);
+        let c = this.chunks.get(key);
         if (!c) {
+          if (this.worker && !this.saved.has(key)) {
+            if (!this.pending.has(key) && this.pending.size < 12) {
+              this.pending.set(key, performance.now());
+              this.worker.postMessage({ cx, cz });
+            }
+            continue;
+          }
           c = this._createChunk(cx, cz);
           work++;
           if (performance.now() - t0 > budgetMs) return work;
@@ -315,18 +350,26 @@
         }
       }
       // luce dai vicini già illuminati
-      const pull = (ch, xs, zs, xe, ze) => {
+      // luce dai vicini già illuminati: solo le celle di bordo che possono aumentare la nostra
+      const pull = (ch, nx, nz, ox, oz) => {
         const nbx = ch.cx * 16, nbz = ch.cz * 16;
-        for (let z = zs; z <= ze; z++) for (let x = xs; x <= xe; x++) for (let y = 0; y < WH; y++) {
-          const v = ch.light[(y << 8) | (z << 4) | x];
-          if ((v >> 4) > 1) skyQ.push(nbx + x, y, nbz + z);
-          if ((v & 15) > 1) blkQ.push(nbx + x, y, nbz + z);
+        const nl = ch.light;
+        for (let k = 0; k < 16; k++) {
+          const x = nx < 0 ? k : nx, z = nz < 0 ? k : nz;
+          const lx = ox < 0 ? k : ox, lz = oz < 0 ? k : oz;
+          for (let y = 0; y < WH; y++) {
+            const v = nl[(y << 8) | (z << 4) | x];
+            if (v < 0x20 && (v & 15) < 2) continue;
+            const o = light[(y << 8) | (lz << 4) | lx];
+            if ((v >> 4) - 1 > (o >> 4)) skyQ.push(nbx + x, y, nbz + z);
+            if ((v & 15) - 1 > (o & 15)) blkQ.push(nbx + x, y, nbz + z);
+          }
         }
       };
-      let n = this.chunks.get(ckey(c.cx + 1, c.cz)); if (n && n.state >= ST.LIT) pull(n, 0, 0, 0, 15);
-      n = this.chunks.get(ckey(c.cx - 1, c.cz)); if (n && n.state >= ST.LIT) pull(n, 15, 0, 15, 15);
-      n = this.chunks.get(ckey(c.cx, c.cz + 1)); if (n && n.state >= ST.LIT) pull(n, 0, 0, 15, 0);
-      n = this.chunks.get(ckey(c.cx, c.cz - 1)); if (n && n.state >= ST.LIT) pull(n, 0, 15, 15, 15);
+      let n = this.chunks.get(ckey(c.cx + 1, c.cz)); if (n && n.state >= ST.LIT) pull(n, 0, -1, 15, -1);
+      n = this.chunks.get(ckey(c.cx - 1, c.cz)); if (n && n.state >= ST.LIT) pull(n, 15, -1, 0, -1);
+      n = this.chunks.get(ckey(c.cx, c.cz + 1)); if (n && n.state >= ST.LIT) pull(n, -1, 0, -1, 15);
+      n = this.chunks.get(ckey(c.cx, c.cz - 1)); if (n && n.state >= ST.LIT) pull(n, -1, 15, -1, 0);
       this._propagate(skyQ, true);
       this._propagate(blkQ, false);
     }
