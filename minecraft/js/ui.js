@@ -156,10 +156,16 @@
         del.textContent = '✕';
         del.title = 'Elimina mondo';
         del.addEventListener('click', async () => {
-          if (confirm('Eliminare definitivamente il mondo "' + w.name + '"?')) {
-            await this.game.storage.deleteWorld(w.id);
-            this.renderWorldList(await this.game.storage.listWorlds());
+          // conferma con un secondo clic (i popup nativi possono essere bloccati)
+          if (!del.dataset.armed) {
+            del.dataset.armed = '1';
+            del.textContent = 'Sicuro?';
+            del.style.width = '96px';
+            setTimeout(() => { if (del.isConnected) { delete del.dataset.armed; del.textContent = '✕'; del.style.width = ''; } }, 3000);
+            return;
           }
+          await this.game.storage.deleteWorld(w.id);
+          this.renderWorldList(await this.game.storage.listWorlds());
         });
         row.appendChild(play); row.appendChild(del);
         el.appendChild(row);
