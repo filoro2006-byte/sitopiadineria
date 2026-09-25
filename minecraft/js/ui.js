@@ -25,7 +25,7 @@
   class UI {
     constructor(game) {
       this.game = game;
-      this.screens = ['screen-main', 'screen-new', 'screen-loading', 'screen-pause', 'screen-settings', 'screen-controls', 'screen-death', 'screen-inv', 'error-box'];
+      this.screens = ['screen-main', 'screen-new', 'screen-loading', 'screen-pause', 'screen-settings', 'screen-controls', 'screen-death', 'screen-inv', 'screen-trade', 'error-box'];
       this.cursor = null; // {id,count}
       this.tab = 'all';
       this.station = null;

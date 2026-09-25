@@ -25,6 +25,8 @@
 
   
 
+  const tmpA = mat4.create();
+
   class Entities {
     constructor(game) {
       this.game = game;
