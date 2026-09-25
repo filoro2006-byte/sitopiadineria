@@ -69,6 +69,9 @@
       this.wheelAcc = 0;
       this.rainCache = new Map(); this.rainCacheT = 0;
       this._bindInput();
+      this.touchMode = false;
+      this.touch = new MC.Touch(this);
+      if (MC.Touch.isTouchDevice()) this.touch.enable();
       this._loop = this._loop.bind(this);
       requestAnimationFrame(this._loop);
       this.start();
@@ -77,8 +80,11 @@
     // ---------------- Impostazioni ----------------
     _loadSettings() {
       let s = {};
-      try { s = JSON.parse(localStorage.getItem('blockcraft-settings') || '{}') || {}; } catch (e) { s = {}; }
-      return Object.assign({}, DEFAULTS, s);
+      let raw = null;
+      try { raw = localStorage.getItem('blockcraft-settings'); s = JSON.parse(raw || '{}') || {}; } catch (e) { s = {}; }
+      const base = Object.assign({}, DEFAULTS);
+      if (!raw && MC.Touch && MC.Touch.isTouchDevice()) { base.renderDist = 5; base.scale = 75; base.fancyLeaves = false; }
+      return Object.assign(base, s);
     }
     saveSettings() {
       try { localStorage.setItem('blockcraft-settings', JSON.stringify(this.settings)); } catch (e) { /* ignora */ }
@@ -160,6 +166,7 @@
 
     lockPointer() {
       if (this.state !== 'playing') return;
+      if (this.touchMode) { document.getElementById('click-to-play').classList.add('hidden'); return; }
       try {
         const p = this.canvas.requestPointerLock();
         if (p && typeof p.catch === 'function') p.catch(() => { if (this.state === 'playing' && !this.locked) document.getElementById('click-to-play').classList.remove('hidden'); });
@@ -328,6 +335,23 @@
       return null;
     }
 
+    // orienta la visuale verso la direzione più aperta
+    _faceOpen() {
+      const w = this.world, p = this.player;
+      let best = 0, bestD = -1;
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2;
+        const dx = -Math.sin(a), dz = -Math.cos(a);
+        let d = 0;
+        for (; d < 40; d++) {
+          const x = Math.floor(p.x + dx * d), z = Math.floor(p.z + dz * d);
+          if (SOLID[w.getBlock(x, Math.floor(p.y + 1.6), z)] || SOLID[w.getBlock(x, Math.floor(p.y + 3), z)]) break;
+        }
+        if (d > bestD) { bestD = d; best = a; }
+      }
+      p.yaw = best; p.pitch = -0.08;
+    }
+
     _placeAtSpawn() {
       const w = this.world, p = this.player;
       const sx = Math.floor(this.meta.spawn.x), sz = Math.floor(this.meta.spawn.z);
@@ -336,7 +360,7 @@
           if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
           if (!w.isReady(sx + dx, sz + dz)) continue;
           const y = this._findSafeY(sx + dx, sz + dz);
-          if (y !== null) { p.x = sx + dx + 0.5; p.z = sz + dz + 0.5; p.y = y; p.vy = 0; return true; }
+          if (y !== null) { p.x = sx + dx + 0.5; p.z = sz + dz + 0.5; p.y = y; p.vy = 0; this._faceOpen(); return true; }
         }
       }
       const y = w.topSolid(sx, sz);
@@ -371,6 +395,7 @@
       this.meta = null;
       this.entities.clear();
       this.state = 'menu';
+      this.touch.show(false);
       this.ui.showHUD(false);
       this.ui.setFx(false, false, 0);
       document.getElementById('click-to-play').classList.add('hidden');
@@ -427,22 +452,23 @@
         this.ui.showHUD(!this.hudHidden);
         this.ui.updateHotbar();
         this.ui.updateBars();
-        document.getElementById('click-to-play').classList.remove('hidden');
-        this.ui.chat('Benvenuto in ' + this.meta.name + '! Premi T per i comandi, E per l\'inventario.');
+        if (!this.touchMode) document.getElementById('click-to-play').classList.remove('hidden');
+        this.ui.chat(this.touchMode ? 'Benvenuto in ' + this.meta.name + '! Tocca per piazzare, tieni premuto per rompere.' : 'Benvenuto in ' + this.meta.name + '! Premi T per i comandi, E per l\'inventario.');
       }
     }
 
     _input() {
       if (this.state !== 'playing') return {};
       const k = this.keys;
+      const t = this.touch && this.touch.active ? this.touch.input() : null;
+      const cl = (v) => Math.max(-1, Math.min(1, v));
+      const fw = cl(((k.has('KeyW') || k.has('ArrowUp')) ? 1 : 0) - ((k.has('KeyS') || k.has('ArrowDown')) ? 1 : 0) + (t ? t.fw : 0));
+      const st = cl(((k.has('KeyD') || k.has('ArrowRight')) ? 1 : 0) - ((k.has('KeyA') || k.has('ArrowLeft')) ? 1 : 0) + (t ? t.st : 0));
       return {
-        forward: k.has('KeyW') || k.has('ArrowUp'),
-        back: k.has('KeyS') || k.has('ArrowDown'),
-        left: k.has('KeyA') || k.has('ArrowLeft'),
-        right: k.has('KeyD') || k.has('ArrowRight'),
+        fw, st,
         jump: k.has('Space'),
         sneak: k.has('ShiftLeft') || k.has('ShiftRight'),
-        sprint: k.has('ControlLeft') || k.has('ControlRight') || k.has('KeyR') || this.sprintTap,
+        sprint: k.has('ControlLeft') || k.has('ControlRight') || k.has('KeyR') || this.sprintTap || (t && t.fw > 0.97),
       };
     }
 
@@ -498,6 +524,7 @@
 
       this.ui.updateBars();
       this.ui.setFx(p.eyeInWater, p.eyeInLava, p.hurtTime);
+      this.touch.show(this.state === 'playing' && !this.hudHidden);
       if (this.audio.setRain) this.audio.setRain(this._rainLevel() * this._rainExposure());
 
       if (this.showDebug) {

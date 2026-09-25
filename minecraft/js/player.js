@@ -210,8 +210,8 @@
       this.sneaking = !!input.sneak && !this.flying;
 
       // input movimento
-      let fw = (input.forward ? 1 : 0) - (input.back ? 1 : 0);
-      let st = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+      let fw = input.fw || 0;
+      let st = input.st || 0;
       if (input.sprint && fw > 0 && !this.sneaking) this.sprinting = true;
       if (fw <= 0 || this.sneaking || this.horizCollide) this.sprinting = false;
       const s = Math.sin(this.yaw), c = Math.cos(this.yaw);

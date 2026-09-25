@@ -5,7 +5,7 @@ html, body {
   color: #fff; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
   overscroll-behavior: none;
 }
-canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; outline: none; cursor: default; }
+canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; outline: none; cursor: default; touch-action: none; }
 .hidden { display: none !important; }
 img, canvas.pix { image-rendering: pixelated; image-rendering: crisp-edges; }
 
@@ -72,7 +72,7 @@ img, canvas.pix { image-rendering: pixelated; image-rendering: crisp-edges; }
 }
 .splash {
   position: absolute; right: -30px; bottom: -8px; color: #ffff3f; font-size: 18px; font-weight: bold;
-  transform: rotate(-18deg); text-shadow: 2px 2px 0 #3f3f00; animation: pulse 0.5s ease-in-out infinite alternate; white-space: nowrap;
+  transform: rotate(-18deg); text-shadow: 2px 2px 0 #3f3f00; pointer-events: none; animation: pulse 0.5s ease-in-out infinite alternate; white-space: nowrap;
 }
 @keyframes pulse { from { transform: rotate(-18deg) scale(1); } to { transform: rotate(-18deg) scale(1.08); } }
 .screen-title { font-size: 26px; text-shadow: 2px 2px 0 #3f3f3f; font-weight: bold; }
@@ -156,4 +156,41 @@ input[type=range] { width: 100%; accent-color: #8f9ecf; }
   .grid.g9 { grid-template-columns: repeat(9, 34px); }
   .slot { width: 34px; height: 34px; }
   .controls-grid { grid-template-columns: 1fr; }
+}
+
+/* --------- Touch --------- */
+#touch { position: fixed; inset: 0; pointer-events: none; z-index: 6; }
+#t-stick {
+  position: fixed; width: 120px; height: 120px; border-radius: 50%; transform: translate(-50%, -50%);
+  background: rgba(255,255,255,0.08); border: 2px solid rgba(255,255,255,0.25); display: none; left: 90px; top: 70%;
+}
+#t-stick.on { display: block; }
+#t-knob { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; border-radius: 50%; background: rgba(255,255,255,0.35); transform: translate(-50%, -50%); }
+.t-right { position: fixed; right: max(14px, env(safe-area-inset-right)); bottom: max(70px, calc(env(safe-area-inset-bottom) + 60px)); display: grid; grid-template-columns: repeat(2, 60px); gap: 10px; pointer-events: none; }
+.t-right .t-btn { pointer-events: auto; }
+.t-top { position: fixed; right: max(12px, env(safe-area-inset-right)); top: max(12px, env(safe-area-inset-top)); display: flex; gap: 8px; pointer-events: auto; }
+.t-btn {
+  width: 60px; height: 60px; border-radius: 12px; background: rgba(0,0,0,0.35); border: 2px solid rgba(255,255,255,0.35);
+  color: #fff; font-size: 26px; display: flex; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; touch-action: none;
+}
+.t-btn.small { width: 44px; height: 44px; font-size: 16px; }
+.t-btn.down { background: rgba(255,255,255,0.3); }
+body.touch-mode #hotbar { pointer-events: auto; }
+body.touch-mode #bottom { bottom: max(8px, env(safe-area-inset-bottom)); }
+body.touch-mode .inv-hint { display: none; }
+@media (max-height: 430px) {
+  .t-right { grid-template-columns: repeat(2, 52px); gap: 8px; bottom: 58px; }
+  .t-right .t-btn { width: 52px; height: 52px; font-size: 22px; }
+  #bars { margin-bottom: 1px; }
+}
+@media (max-height: 520px) {
+  .screen { justify-content: flex-start; gap: 10px; padding-top: 12px; }
+  .logo { font-size: 44px; }
+  .title-wrap { margin-bottom: 4px; }
+  .splash { font-size: 13px; right: -20px; }
+  .footer-note { display: none; }
+  .btn { padding: 7px 10px; font-size: 15px; }
+  .world-list { max-height: 30vh; }
+  .panel { max-height: 98vh; padding: 8px; }
+  .grid.scroll { max-height: 38vh; }
 }
