@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#1d1d1d">
+  <title>BlockCraft</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <canvas id="game" tabindex="0"></canvas>
+
+  <div id="hud" class="hidden">
+    <div id="crosshair"></div>
+    <div id="debug" class="hidden"></div>
+    <div id="chat-log"></div>
+    <div id="item-name"></div>
+    <div id="bottom">
+      <div id="bars">
+        <div id="hearts"></div>
+        <div id="bubbles"></div>
+      </div>
+      <div id="hotbar"></div>
+    </div>
+  </div>
+
+  <div id="fx-water" class="fx"></div>
+  <div id="fx-lava" class="fx"></div>
+  <div id="fx-hurt" class="fx"></div>
+  <div id="fx-vignette" class="fx"></div>
+
+  <!-- Clicca per giocare -->
+  <div id="click-to-play" class="overlay hidden">
+    <div class="ctp-box">
+      <div class="ctp-title">Clicca per giocare</div>
+      <div class="ctp-sub">ESC per il menu · E inventario · T comandi</div>
+    </div>
+  </div>
+
+  <!-- Menu principale -->
+  <div id="screen-main" class="screen dirt-bg">
+    <div class="title-wrap">
+      <h1 class="logo">BLOCKCRAFT</h1>
+      <div class="splash">Fatto con la piadina!</div>
+    </div>
+    <div class="menu-col">
+      <div id="world-list" class="world-list"></div>
+      <button class="btn" id="btn-new">Crea nuovo mondo</button>
+      <button class="btn" id="btn-controls">Comandi e aiuto</button>
+      <button class="btn" id="btn-settings-main">Impostazioni</button>
+    </div>
+    <div class="footer-note">Clone voxel in WebGL2 · funziona su Safari, Brave, Chrome, Firefox</div>
+    <div id="storage-warn" class="footer-warn hidden">Salvataggio non disponibile in questa finestra (modalità privata?): i mondi non verranno conservati.</div>
+  </div>
+
+  <!-- Nuovo mondo -->
+  <div id="screen-new" class="screen dirt-bg hidden">
+    <h2 class="screen-title">Crea nuovo mondo</h2>
+    <div class="menu-col form">
+      <label>Nome del mondo<input id="new-name" type="text" maxlength="32" value="Nuovo mondo"></label>
+      <label>Seme (lascia vuoto per casuale)<input id="new-seed" type="text" maxlength="40" placeholder="es. piadina"></label>
+      <div class="row">
+        <button class="btn toggle" id="new-mode" data-value="creative">Modalità: Creativa</button>
+        <button class="btn toggle" id="new-type" data-value="normal">Mondo: Normale</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="btn-create">Crea mondo</button>
+        <button class="btn" id="btn-new-back">Annulla</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Caricamento -->
+  <div id="screen-loading" class="screen dirt-bg hidden">
+    <h2 class="screen-title" id="loading-title">Generazione del mondo...</h2>
+    <div class="progress"><div id="loading-bar"></div></div>
+    <div id="loading-sub" class="loading-sub"></div>
+  </div>
+
+  <!-- Pausa -->
+  <div id="screen-pause" class="screen dim hidden">
+    <h2 class="screen-title">Gioco in pausa</h2>
+    <div class="menu-col">
+      <button class="btn" id="btn-resume">Torna al gioco</button>
+      <button class="btn" id="btn-settings">Impostazioni</button>
+      <button class="btn" id="btn-controls2">Comandi e aiuto</button>
+      <button class="btn" id="btn-quit">Salva ed esci al menu</button>
+    </div>
+  </div>
+
+  <!-- Impostazioni -->
+  <div id="screen-settings" class="screen dim hidden">
+    <h2 class="screen-title">Impostazioni</h2>
+    <div class="menu-col settings">
+      <label>Distanza visiva: <span id="v-dist"></span><input type="range" id="s-dist" min="3" max="16" step="1"></label>
+      <label>Campo visivo: <span id="v-fov"></span><input type="range" id="s-fov" min="50" max="110" step="1"></label>
+      <label>Sensibilità mouse: <span id="v-sens"></span><input type="range" id="s-sens" min="10" max="200" step="1"></label>
+      <label>Volume: <span id="v-vol"></span><input type="range" id="s-vol" min="0" max="100" step="1"></label>
+      <label>Luminosità: <span id="v-bright"></span><input type="range" id="s-bright" min="0" max="100" step="1"></label>
+      <label>Risoluzione: <span id="v-scale"></span><input type="range" id="s-scale" min="40" max="100" step="5"></label>
+      <div class="row">
+        <button class="btn toggle" id="s-leaves">Foglie: Dettagliate</button>
+        <button class="btn toggle" id="s-clouds">Nuvole: Sì</button>
+      </div>
+      <div class="row">
+        <button class="btn toggle" id="s-bob">Oscillazione visuale: Sì</button>
+        <button class="btn toggle" id="s-mobs">Creature: Sì</button>
+      </div>
+      <div class="row">
+        <button class="btn toggle" id="s-invert">Inverti mouse: No</button>
+        <button class="btn toggle" id="s-weather">Meteo: Sì</button>
+      </div>
+      <button class="btn" id="btn-settings-back">Fatto</button>
+    </div>
+  </div>
+
+  <!-- Comandi -->
+  <div id="screen-controls" class="screen dim hidden">
+    <h2 class="screen-title">Comandi</h2>
+    <div class="controls-grid">
+      <div><b>W A S D</b> muoviti</div>
+      <div><b>Spazio</b> salta · doppio = vola (creativa)</div>
+      <div><b>Maiusc</b> accovacciati / scendi in volo</div>
+      <div><b>Ctrl</b> o doppio <b>W</b> corri</div>
+      <div><b>Clic sinistro</b> rompi / attacca</div>
+      <div><b>Clic destro</b> piazza / usa (TNT, banco)</div>
+      <div><b>Clic centrale</b> prendi il blocco puntato</div>
+      <div><b>1-9</b> o <b>rotella</b> scegli lo slot</div>
+      <div><b>E</b> inventario / creazione</div>
+      <div><b>Q</b> getta l'oggetto</div>
+      <div><b>T</b> o <b>/</b> comandi chat</div>
+      <div><b>F3</b> info di debug · <b>F1</b> nascondi HUD</div>
+      <div><b>ESC</b> pausa</div>
+      <div><b>Mac</b>: clic con due dita = clic destro</div>
+    </div>
+    <div class="cmd-help">Comandi: <code>/time set day|night|noon|&lt;n&gt;</code> · <code>/gamemode creative|survival</code> · <code>/tp x y z</code> · <code>/seed</code> · <code>/weather clear|rain</code> · <code>/give &lt;blocco&gt; [n]</code> · <code>/spawn &lt;pig|cow|sheep|chicken|zombie&gt;</code> · <code>/kill</code></div>
+    <div class="menu-col"><button class="btn" id="btn-controls-back">Fatto</button></div>
+  </div>
+
+  <!-- Morte -->
+  <div id="screen-death" class="screen death hidden">
+    <h2 class="screen-title big">Sei morto!</h2>
+    <div id="death-msg" class="death-msg"></div>
+    <div class="menu-col">
+      <button class="btn" id="btn-respawn">Rinasci</button>
+      <button class="btn" id="btn-death-quit">Esci al menu</button>
+    </div>
+  </div>
+
+  <!-- Inventario -->
+  <div id="screen-inv" class="screen dim hidden">
+    <div id="inv-panel" class="panel">
+      <div id="inv-creative">
+        <div class="inv-head">
+          <div id="inv-tabs" class="tabs"></div>
+          <input id="inv-search" type="text" placeholder="Cerca...">
+        </div>
+        <div id="inv-grid" class="grid scroll"></div>
+      </div>
+      <div id="inv-survival">
+        <div class="inv-cols">
+          <div>
+            <div class="inv-label">Inventario</div>
+            <div id="inv-main" class="grid g9"></div>
+          </div>
+          <div class="craft-col">
+            <div class="inv-label" id="craft-label">Creazione</div>
+            <div id="craft-list" class="craft-list scroll"></div>
+          </div>
+        </div>
+      </div>
+      <div class="inv-label">Barra rapida</div>
+      <div id="inv-hotbar" class="grid g9"></div>
+      <div class="inv-hint" id="inv-hint"></div>
+    </div>
+    <div id="cursor-item"></div>
+    <div id="tooltip" class="hidden"></div>
+  </div>
+
+  <!-- Chat -->
+  <div id="chat-box" class="hidden">
+    <input id="chat-input" type="text" maxlength="200" autocomplete="off" spellcheck="false" placeholder="Scrivi un comando, es. /time set night">
+  </div>
+
+  <div id="error-box" class="screen dirt-bg hidden">
+    <h2 class="screen-title">Impossibile avviare il gioco</h2>
+    <div id="error-msg" class="death-msg"></div>
+  </div>
+
+  <script src="js/noise.js"></script>
+  <script src="js/blocks.js"></script>
+  <script src="js/textures.js"></script>
+  <script src="js/generator.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/mesher.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/entities.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/inventory.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
