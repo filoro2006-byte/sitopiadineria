@@ -7,6 +7,7 @@
   const WH = MC.WH;
 
   // --- Collisioni con i blocchi ---
+  const connGet = (world) => (x, y, z) => world.getBlock(x, y, z);
   function collectBoxes(world, x0, y0, z0, x1, y1, z1, out) {
     out.length = 0;
     const ix0 = Math.floor(x0), iy0 = Math.floor(y0) - 1, iz0 = Math.floor(z0);
@@ -18,6 +19,12 @@
         if (y < 0 || y >= WH) continue;
         const id = world.getBlock(x, y, z);
         if (!SOLID[id]) continue;
+        const d = MC.blocks[id];
+        if (d.shape === 'model') {
+          const bs = MC.getCollisionBoxes(id, world.getMeta(x, y, z), d.conn ? MC.connMask(connGet(world), x, y, z, id) : 0);
+          for (const b of bs) out.push([x + b[0], y + b[1], z + b[2], x + b[3], y + b[4], z + b[5]]);
+          continue;
+        }
         const b = MC.getCollisionBox(id);
         if (!b) continue;
         out.push([x + b[0], y + b[1], z + b[2], x + b[3], y + b[4], z + b[5]]);
@@ -122,12 +129,21 @@
       if (y >= 0 && y < WH) {
         const id = world.getBlock(x, y, z);
         if (id) {
-          const sb = MC.getSelectionBox(id, world.getMeta(x, y, z));
-          if (sb) {
-            const box = [x + sb[0], y + sb[1], z + sb[2], x + sb[3], y + sb[4], z + sb[5]];
-            const h = rayBox(ox, oy, oz, dx, dy, dz, box);
-            if (h && h.t <= maxDist) {
-              return { x, y, z, id, face: h.face, n: FACE_N[h.face], t: h.t, box };
+          const d = MC.blocks[id];
+          const sbs = MC.getSelectionBoxes(id, world.getMeta(x, y, z), d.conn ? MC.connMask(connGet(world), x, y, z, id) : 0);
+          if (sbs) {
+            let best = null, bbox = null;
+            for (const sb of sbs) {
+              const box = [x + sb[0], y + sb[1], z + sb[2], x + sb[3], y + sb[4], z + sb[5]];
+              const h = rayBox(ox, oy, oz, dx, dy, dz, box);
+              if (h && h.t <= maxDist && (!best || h.t < best.t)) { best = h; bbox = box; }
+            }
+            if (best) {
+              // per l'evidenziazione usa l'unione delle scatole
+              const u = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+              for (const sb of sbs) for (let i = 0; i < 3; i++) { u[i] = Math.min(u[i], sb[i]); u[i + 3] = Math.max(u[i + 3], sb[i + 3]); }
+              const hx = ox + dx * best.t, hy = oy + dy * best.t, hz = oz + dz * best.t;
+              return { x, y, z, id, face: best.face, n: FACE_N[best.face], t: best.t, box: [x + u[0], y + u[1], z + u[2], x + u[3], y + u[4], z + u[5]], hit: [hx - x, hy - y, hz - z], part: bbox };
             }
           }
         }
@@ -151,6 +167,7 @@
       this.sprinting = false;
       this.inWater = false; this.inLava = false; this.eyeInWater = false; this.eyeInLava = false;
       this.health = 20; this.air = 300;
+      this.food = 20; this.sat = 5; this.exh = 0; this.foodTimer = 0; this.hungerFx = 0;
       this.mode = 'creative';
       this.fallDist = 0;
       this.bob = 0; this.bobAmt = 0;
@@ -176,6 +193,9 @@
       const w = this.width / 2;
       return [this.x - w, this.y, this.z - w, this.x + w, this.y + this.height, this.z + w];
     }
+
+    exhaust(v) { if (this.mode === 'survival') this.exh += v * (this.hungerFx > 0 ? 3 : 1); }
+    eat(h, sat) { this.food = Math.min(20, this.food + h); this.sat = Math.min(this.food, this.sat + sat); }
 
     damage(amount, cause, kx, kz) {
       if (this.mode !== 'survival' || this.dead || amount <= 0) return;
@@ -203,6 +223,8 @@
       const fe = this._fluidAt(world, this.x, this.y + this.eyeHeight, this.z);
       this.eyeInWater = fe === 1;
       this.eyeInLava = fe === 2;
+      const lb = world.getBlock(Math.floor(this.x), Math.floor(this.y + 0.2), Math.floor(this.z)), lb2 = world.getBlock(Math.floor(this.x), Math.floor(this.y + 1.2), Math.floor(this.z));
+      this.onLadder = !this.flying && ((MC.blocks[lb] && MC.blocks[lb].ladder) || (MC.blocks[lb2] && MC.blocks[lb2].ladder));
       if (this.inWater && !wasInWater && this.vy < -6 && this.onSplash) this.onSplash();
 
       const creative = this.mode === 'creative';
@@ -215,7 +237,7 @@
       // input movimento
       let fw = input.fw || 0;
       let st = input.st || 0;
-      if (input.sprint && fw > 0 && !this.sneaking) this.sprinting = true;
+      if (input.sprint && fw > 0 && !this.sneaking && (this.mode !== 'survival' || this.food > 6)) this.sprinting = true;
       if (fw <= 0 || this.sneaking || this.horizCollide) this.sprinting = false;
       const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
       let mx = -s * fw + c * st, mz = -c * fw - s * st;
@@ -256,12 +278,18 @@
         if (this.vy < -4.5) this.vy = -4.5;
         if (this.vy > 4.5) this.vy = 4.5;
         this.fallDist = 0;
+      } else if (this.onLadder) {
+        this.fallDist = 0;
+        if (this.horizCollide || input.jump) this.vy = 2.4;
+        else if (this.sneaking) this.vy = 0;
+        else this.vy = Math.max(this.vy - 28 * dt, -2.4);
       } else {
         this.vy -= 28 * dt;
         if (this.vy < -60) this.vy = -60;
         if (input.jump && this.onGround && performance.now() - this.lastJump > 100) {
           this.vy = 8.4;
           this.lastJump = performance.now();
+          this.exhaust(this.sprinting ? 0.2 : 0.05);
           if (this.sprinting) { this.vx += -s * 1.8; this.vz += -c * 1.8; }
         }
       }
@@ -297,6 +325,8 @@
 
       // passi e oscillazione della visuale
       const hd = Math.hypot(this.x - px, this.z - pz);
+      if (this.sprinting && this.onGround) this.exhaust(hd * 0.1);
+      else if (this.inWater) this.exhaust(hd * 0.01);
       if (this.onGround && !this.flying) {
         this.stepDist += hd;
         this.bob += hd * 2.2;
@@ -326,7 +356,7 @@
     }
 
     _survival(dt, world) {
-      if (this.mode !== 'survival') { this.health = 20; this.air = 300; return; }
+      if (this.mode !== 'survival') { this.health = 20; this.air = 300; this.food = 20; return; }
       // aria
       if (this.eyeInWater) {
         this.air -= dt * 20;
@@ -359,11 +389,19 @@
         this.cactusTimer += dt;
         if (this.cactusTimer >= 0.5) { this.cactusTimer = 0; this.damage(1, 'cactus'); }
       }
-      // rigenerazione
-      if (this.health < 20) {
-        this.regenTimer += dt;
-        if (this.regenTimer >= 3) { this.regenTimer = 0; this.health = Math.min(20, this.health + 1); }
+      // fame
+      if (this.hungerFx > 0) this.hungerFx -= dt;
+      while (this.exh >= 4) {
+        this.exh -= 4;
+        if (this.sat > 0) this.sat = Math.max(0, this.sat - 1);
+        else this.food = Math.max(0, this.food - 1);
       }
+      this.foodTimer += dt;
+      if (this.food >= 18 && this.health < 20) {
+        if (this.foodTimer >= (this.food >= 20 && this.sat > 0 ? 0.5 : 4)) { this.foodTimer = 0; this.health = Math.min(20, this.health + 1); this.exh += 6; }
+      } else if (this.food <= 0) {
+        if (this.foodTimer >= 4) { this.foodTimer = 0; if (this.health > 1) this.damage(1, 'starve'); }
+      } else this.foodTimer = Math.min(this.foodTimer, 4);
     }
   }
 

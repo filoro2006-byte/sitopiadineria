@@ -201,6 +201,8 @@
       } else if (this.state === 'inventory') {
         if (c === 'KeyE' || c === 'Escape') { e.preventDefault(); this.closeInventory(); }
         else if (c.startsWith('Digit') && c !== 'Digit0') this.ui.numberKey(+c.slice(5) - 1);
+      } else if (this.state === 'trade') {
+        if (c === 'KeyE' || c === 'Escape') { e.preventDefault(); this.closeTrade(); }
       } else if (this.state === 'paused') {
         if (c === 'Escape' && !e.repeat) this.resume();
       }
@@ -300,6 +302,10 @@
         p.x = meta.spawn.x; p.z = meta.spawn.z; p.y = 150; p.yaw = 0; p.pitch = -0.2; p.health = 20; p.flying = false;
         this.pendingSpawn = true;
       }
+      this.chests = meta.chests || {};
+      p.food = meta.player && meta.player.food !== undefined ? meta.player.food : 20;
+      p.sat = meta.player && meta.player.sat !== undefined ? meta.player.sat : 5;
+      p.exh = 0;
       if (meta.inventory) this.inventory.load(meta.inventory);
       else this._defaultInventory();
       this.time = meta.time || 1000;
@@ -373,7 +379,8 @@
     saveMeta() {
       if (!this.meta || !this.world) return;
       const p = this.player;
-      if (!this.pendingSpawn) this.meta.player = { x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, health: p.health, flying: p.flying };
+      if (!this.pendingSpawn) this.meta.player = { x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, health: p.health, flying: p.flying, food: p.food, sat: p.sat };
+      this.meta.chests = this.chests;
       this.meta.inventory = this.inventory.serialize();
       this.meta.time = Math.floor(this.time);
       this.meta.mode = p.mode;
@@ -531,6 +538,10 @@
       this.ui.updateBars();
       this.ui.setFx(p.eyeInWater, p.eyeInLava, p.hurtTime);
       this.touch.show(this.state === 'playing' && !this.hudHidden);
+      const eb = document.getElementById('eat-bar');
+      const prog = this.eating ? this.eating.t / 1.6 : this.bowCharge > 0 ? this.bowCharge : 0;
+      eb.classList.toggle('hidden', !prog);
+      if (prog) eb.firstChild.style.width = Math.round(prog * 100) + '%';
       if (this.audio.setRain) this.audio.setRain(this._rainLevel() * this._rainExposure());
 
       if (this.showDebug) {
@@ -575,6 +586,22 @@
     }
 
     // ---------------- Interazione ----------------
+    // tempo per rompere un blocco con l'oggetto in mano (stile originale)
+    _breakTime(def) {
+      const held = this.inventory.held();
+      const hd = held ? MC.blocks[held.id] : null;
+      const tool = hd && hd.tool ? hd.tool : null;
+      let speed = 1;
+      if (tool && def.tool && tool.type === def.tool) speed = tool.speed;
+      if (tool && tool.type === 'sword' && def.key.endsWith('_leaves')) speed = 1.5;
+      if (tool && tool.type === 'sword' && def.key === 'cobweb') speed = 15;
+      const canHarvest = !def.needsTool || (tool && tool.type === def.tool && tool.level >= def.level);
+      let t = (def.hardness * (canHarvest ? 1.5 : 5)) / speed;
+      if (this.player.inWater && !this.player.onGround) t *= 5;
+      else if (this.player.inWater) t *= 1.6;
+      return { t: Math.max(0.05, t), canHarvest };
+    }
+
     _interact(dt) {
       const p = this.player, w = this.world;
       this.breakCd -= dt; this.useCd -= dt; this.attackCd -= dt;
@@ -585,39 +612,90 @@
       const mh = this.entities.raycastMobs(eye[0], eye[1], eye[2], d[0], d[1], d[2], 3.5);
       const mobFirst = mh && (!hit || mh.t < hit.t);
       this.target = mobFirst ? null : hit;
-      if (this.mouse.left) {
+      this.targetMob = mobFirst ? mh.mob : null;
+      const held = this.inventory.held();
+      const hd = held ? MC.blocks[held.id] : null;
+      if (this.mouse.left && !this.eating) {
         if (mobFirst) {
           if (this.attackCd <= 0) {
-            this.entities.hitMob(mh.mob, 4, p.x, p.z);
-            this.attackCd = 0.45;
+            const dmg = hd && hd.tool ? hd.tool.damage : 1;
+            const crit = !p.onGround && p.vy < 0 && !p.inWater;
+            if (this.entities.hitMob(mh.mob, crit ? dmg * 1.5 : dmg, p.x, p.z, p.sprinting ? 1.6 : 1) && p.mode === 'survival') {
+              if (hd && hd.tool) this.inventory.wearHeld(hd.tool.type === 'sword' ? 1 : 2);
+              p.exhaust(0.1);
+            }
+            if (crit) for (let i = 0; i < 8; i++) this.entities.addParticle(mh.mob.x, mh.mob.y + 1, mh.mob.z, (Math.random() - 0.5) * 4, Math.random() * 3, (Math.random() - 0.5) * 4, MC.textures.index.white, [0.9, 0.9, 0.9], 0.5, 0.05, 10, true);
+            this.attackCd = hd && hd.tool && hd.tool.type === 'sword' ? 0.55 : 0.45;
             this.swing = 1;
           }
           this.breaking = null;
         } else if (hit) {
           const def = MC.blocks[hit.id];
           if (p.mode === 'creative') {
-            if (this.breakCd <= 0) { this.breakBlock(hit.x, hit.y, hit.z, false); this.breakCd = 0.25; this.swing = 1; }
+            if (this.breakCd <= 0 && !(hd && hd.tool && hd.tool.type === 'sword')) { this.breakBlock(hit.x, hit.y, hit.z, false); this.breakCd = 0.25; this.swing = 1; }
           } else if (def.hardness >= 0) {
             if (!this.breaking || this.breaking.x !== hit.x || this.breaking.y !== hit.y || this.breaking.z !== hit.z || this.breaking.id !== hit.id) {
               this.breaking = { x: hit.x, y: hit.y, z: hit.z, id: hit.id, p: 0, t: 0 };
             }
             const b = this.breaking;
-            const time = Math.max(0.05, def.hardness);
-            b.p += dt / time;
+            const bt = this._breakTime(def);
+            b.p += dt / bt.t;
             b.t -= dt;
             if (b.t <= 0) { b.t = 0.22; this.audio.hit(hit.id); this.entities.hitParticles(hit.id, hit.x, hit.y, hit.z, hit.n); this.swing = 1; }
             if (b.p >= 1) {
-              this.breakBlock(hit.x, hit.y, hit.z, true);
+              this.breakBlock(hit.x, hit.y, hit.z, bt.canHarvest);
+              if (hd && hd.tool && def.hardness > 0) this.inventory.wearHeld(hd.tool.type === def.tool ? 1 : 2);
+              p.exhaust(0.005);
               this.breaking = null;
               this.breakCd = 0.15;
             }
           }
         } else this.breaking = null;
       } else this.breaking = null;
-      if (this.mouse.right && this.useCd <= 0) {
-        this.useCd = 0.22;
-        this._use(hit);
+
+      // tasto destro: mangiare, arco, usare/piazzare
+      const holdUse = this.mouse.right;
+      if (hd && hd.food && holdUse && (p.mode === 'creative' || p.food < 20 || held.id === B.golden_apple)) {
+        if (!this.eating) { this.eating = { t: 0, id: held.id }; }
+        this.eating.t += dt;
+        if (Math.random() < dt * 8) { this.audio.eat(); this.entities.breakParticlesItem(held.id, p, 2); }
+        if (this.eating.t >= 1.6) {
+          p.eat(hd.food.hunger, hd.food.sat);
+          if (held.id === B.golden_apple) { p.health = Math.min(20, p.health + 4); }
+          if (held.id === B.rotten_flesh && Math.random() < 0.8) p.hungerFx = 30;
+          if (p.mode === 'survival') this.inventory.consumeHeld(1);
+          this.audio.burp();
+          this.eating = null;
+          this.useCd = 0.3;
+        }
+        return;
       }
+      this.eating = null;
+      if (hd && hd.bow) {
+        const hasArrow = p.mode === 'creative' || this.inventory.count(B.arrow) > 0;
+        if (holdUse && hasArrow) { this.bowCharge = Math.min(1, (this.bowCharge || 0) + dt); }
+        else if (!holdUse && this.bowCharge > 0.12) {
+          const pw = this.bowCharge;
+          const e = p.eye;
+          this.entities.shootArrow(e[0] + d[0] * 0.3, e[1] - 0.1, e[2] + d[2] * 0.3, d[0] * 45 * pw, d[1] * 45 * pw, d[2] * 45 * pw, 'player', 2 + 7 * pw * pw);
+          this.audio.bow();
+          if (p.mode === 'survival') { this.inventory.remove(B.arrow, 1); this.inventory.wearHeld(1); }
+          this.bowCharge = 0;
+        } else if (!holdUse) this.bowCharge = 0;
+        return;
+      }
+      this.bowCharge = 0;
+      if (holdUse && this.useCd <= 0) {
+        this.useCd = 0.22;
+        if (this.targetMob) this._useOnMob(this.targetMob);
+        else this._use(hit);
+      }
+    }
+
+    _useOnMob(m) {
+      const held = this.inventory.held();
+      if (m.type === 'villager' && !m.dead) { this.openTrade(m); return; }
+      if (held && MC.blocks[held.id].egg) { this._use(null); return; }
     }
 
     breakBlock(x, y, z, drop) {
@@ -625,41 +703,164 @@
       const id = w.getBlock(x, y, z);
       if (!id) return;
       const def = MC.blocks[id];
+      const meta = w.getMeta(x, y, z);
       w.urgent = true;
-      if (id === B.ice && this.player.mode === 'survival' && SOLID[w.getBlock(x, y - 1, z)] !== undefined && w.getBlock(x, y - 1, z) !== 0) w.setBlock(x, y, z, B.water, 0);
+      if (id === B.ice && this.player.mode === 'survival' && w.getBlock(x, y - 1, z) !== 0) w.setBlock(x, y, z, B.water, 0);
       else w.setBlock(x, y, z, 0, 0);
+      // porte e letti: rompi anche l'altra metà
+      if (def.door) { const oy = meta & 8 ? y - 1 : y + 1; if (w.getBlock(x, oy, z) === id) w.setBlock(x, oy, z, 0, 0); if (meta & 8) { /* il drop arriva dalla metà inferiore */ } }
       w.urgent = false;
+      if (def.interact === 'chest') this._dropChest(x, y, z);
       this.entities.breakParticles(id, x, y, z);
       this.audio.dig(id);
-      if (drop && this.player.mode === 'survival' && def.drop) this.entities.dropItem(def.drop, 1, x + 0.5, y + 0.4, z + 0.5);
+      if (drop && this.player.mode === 'survival') this._spawnDrops(id, x, y, z, meta);
     }
 
-    _naturalDrop(id, x, y, z) {
-      this.entities.breakParticles(id, x, y, z, 10);
+    _spawnDrops(id, x, y, z, meta) {
       const def = MC.blocks[id];
-      if (this.player.mode === 'survival' && def && def.drop) this.entities.dropItem(def.drop, 1, x + 0.5, y + 0.3, z + 0.5);
+      if (def.dropFn) { for (const [did, n] of def.dropFn(meta)) if (did && n) this.entities.dropItem(did, n, x + 0.5, y + 0.4, z + 0.5); return; }
+      if (def.drop) this.entities.dropItem(def.drop, 1, x + 0.5, y + 0.4, z + 0.5);
+    }
+
+    _naturalDrop(id, x, y, z, meta) {
+      this.entities.breakParticles(id, x, y, z, 10);
+      if (this.player.mode === 'survival') this._spawnDrops(id, x, y, z, meta || 0);
     }
 
     _use(hit) {
       const w = this.world, p = this.player;
+      const held = this.inventory.held();
+      const hd = held ? MC.blocks[held.id] : null;
+      // uova generatrici
+      if (hd && hd.egg) {
+        let x, y, z;
+        if (hit) { x = hit.x + hit.n[0] + 0.5; y = hit.y + hit.n[1]; z = hit.z + hit.n[2] + 0.5; if (hit.n[1] === 0) y = hit.y; }
+        else { const d = p.dir(); x = p.x + d[0] * 2; y = p.y; z = p.z + d[2] * 2; }
+        this.entities.spawnMob(hd.egg, x, y, z);
+        this.swing = 1;
+        if (p.mode === 'survival') this.inventory.consumeHeld(1);
+        return;
+      }
       if (!hit) return;
       const def = MC.blocks[hit.id];
       if (!p.sneaking) {
         if (def.interact === 'craft') { this.swing = 1; this.openInventory(hit.id === B.furnace ? 'furnace' : 'table'); return; }
-        if (hit.id === B.tnt) {
+        if (def.interact === 'chest') { this.swing = 1; this.openChest(hit.x, hit.y, hit.z); return; }
+        if (def.interact === 'door') { this._toggleDoor(hit.x, hit.y, hit.z); this.swing = 1; return; }
+        if (def.interact === 'bed') { this._sleep(hit.x, hit.y, hit.z); return; }
+        if (hit.id === B.tnt && (!hd || hd.igniter || !MC.blocks[held.id] || hd.item)) {
           w.urgent = true; w.setBlock(hit.x, hit.y, hit.z, 0, 0); w.urgent = false;
           this.entities.primeTNT(hit.x, hit.y, hit.z, 4);
           this.audio.fuse();
           this.swing = 1;
+          if (hd && hd.igniter && p.mode === 'survival') this.inventory.wearHeld(1);
           return;
         }
       }
-      const held = this.inventory.held();
       if (!held) return;
+      // zappa: ara la terra
+      if (hd.tool && hd.tool.type === 'hoe') {
+        if ((hit.id === B.grass || hit.id === B.dirt || hit.id === B.dirt_path) && !w.getBlock(hit.x, hit.y + 1, hit.z) && hit.n[1] !== -1) {
+          w.urgent = true; w.setBlock(hit.x, hit.y, hit.z, B.farmland, 0); w.urgent = false;
+          this.audio.place(B.dirt); this.swing = 1;
+          if (p.mode === 'survival') this.inventory.wearHeld(1);
+          if (hit.id === B.grass && Math.random() < 0.1 && p.mode === 'survival') this.entities.dropItem(B.wheat_seeds, 1, hit.x + 0.5, hit.y + 1.1, hit.z + 0.5);
+        }
+        return;
+      }
+      // pala: crea un sentiero
+      if (hd.tool && hd.tool.type === 'shovel' && hit.id === B.grass && !w.getBlock(hit.x, hit.y + 1, hit.z)) {
+        w.urgent = true; w.setBlock(hit.x, hit.y, hit.z, B.dirt_path, 0); w.urgent = false;
+        this.audio.place(B.dirt); this.swing = 1;
+        if (p.mode === 'survival') this.inventory.wearHeld(1);
+        return;
+      }
+      if (hd.seeds) {
+        if (hit.id === B.farmland && hit.n[1] === 1 && !w.getBlock(hit.x, hit.y + 1, hit.z)) {
+          w.urgent = true; w.setBlock(hit.x, hit.y + 1, hit.z, B.wheat, 0); w.urgent = false;
+          this.audio.place(B.grass); this.swing = 1;
+          if (p.mode === 'survival') this.inventory.consumeHeld(1);
+        }
+        return;
+      }
+      if (hd.item) return;
       if (this._place(held.id, hit)) {
         this.swing = 1;
         if (p.mode === 'survival') this.inventory.consumeHeld(1);
       }
+    }
+
+    // ---------------- Bauli ----------------
+    openChest(x, y, z) {
+      const key = x + ',' + y + ',' + z;
+      if (!this.chests[key]) {
+        this.chests[key] = new Array(27).fill(null);
+        // bottino dei villaggi: il meta 8 indica un baule da riempire
+        if (this.world.getMeta(x, y, z) & 8) this._fillLoot(this.chests[key], x, y, z);
+      }
+      this.state = 'inventory';
+      this.keys.clear(); this.mouse.left = this.mouse.right = false;
+      this.unlockPointer();
+      document.getElementById('click-to-play').classList.add('hidden');
+      this.openChestKey = key;
+      this.ui.openInventory(null, this.chests[key]);
+      this.audio.door(true);
+    }
+    _fillLoot(slots, x, y, z) {
+      const r = MC.util.mulberry32((x * 73856093) ^ (y * 19349663) ^ (z * 83492791));
+      const pool = [['bread', 1, 4], ['apple', 1, 3], ['iron_ingot', 1, 5], ['gold_ingot', 1, 3], ['wheat_item', 3, 8], ['emerald', 1, 3], ['diamond', 1, 2, 0.15], ['iron_pickaxe', 1, 1, 0.3], ['iron_sword', 1, 1, 0.3], ['oak_sapling', 1, 3], ['torch', 4, 10], ['coal', 2, 6], ['arrow', 4, 12], ['bow', 1, 1, 0.2]];
+      const n = 3 + Math.floor(r() * 5);
+      for (let i = 0; i < n; i++) {
+        const [k, a, b, chance] = pool[Math.floor(r() * pool.length)];
+        if (chance && r() > chance) continue;
+        slots[Math.floor(r() * 27)] = { id: B[k], count: a + Math.floor(r() * (b - a + 1)) };
+      }
+    }
+    chestChanged() { if (this.meta) this.meta.chests = this.chests; }
+    _dropChest(x, y, z) {
+      const key = x + ',' + y + ',' + z;
+      const slots = this.chests[key];
+      if (!slots) return;
+      for (const s of slots) if (s) this.entities.dropItem(s.id, s.count, x + 0.5, y + 0.5, z + 0.5);
+      delete this.chests[key];
+      this.chestChanged();
+    }
+
+    openTrade(m) {
+      this.state = 'trade';
+      this.keys.clear(); this.mouse.left = this.mouse.right = false;
+      this.unlockPointer();
+      document.getElementById('click-to-play').classList.add('hidden');
+      this.ui.openTrade(m);
+    }
+    closeTrade() {
+      this.ui.hideScreens();
+      this.state = 'playing';
+      this.lockPointer();
+    }
+
+    _toggleDoor(x, y, z) {
+      const w = this.world;
+      const m = w.getMeta(x, y, z);
+      const by = m & 8 ? y - 1 : y;
+      const mb = w.getMeta(x, by, z) ^ 4;
+      w.urgent = true;
+      w.setBlock(x, by, z, B.oak_door, mb & ~8, { noUpdate: true });
+      if (w.getBlock(x, by + 1, z) === B.oak_door) w.setBlock(x, by + 1, z, B.oak_door, (mb & ~8) | 8, { noUpdate: true });
+      w.urgent = false;
+      this.audio.door(!!(mb & 4));
+    }
+
+    _sleep(x, y, z) {
+      const t = this.time % 24000;
+      this.meta.spawn = { x: x + 0.5, z: z + 0.5, y: y + 1 };
+      if (t > 12500 && t < 23500) {
+        const hostile = this.entities.mobs.some((m) => m.M.hostile && !m.dead && Math.hypot(m.x - x, m.z - z) < 8);
+        if (hostile) { this.ui.chat('Non puoi dormire ora: ci sono mostri nelle vicinanze.'); return; }
+        this.time = Math.floor(this.time / 24000) * 24000 + 24000;
+        this.rainTarget = 0;
+        this.ui.chat('Buongiorno! Il punto di rinascita è stato impostato.');
+      } else this.ui.chat('Punto di rinascita impostato. Puoi dormire solo di notte.');
     }
 
     _place(id, hit) {
@@ -668,13 +869,32 @@
       const n = hit.n;
       let tx = hit.x, ty = hit.y, tz = hit.z;
       const cur = w.getBlock(tx, ty, tz);
+      const curMeta = w.getMeta(tx, ty, tz);
+      // lastra su lastra dello stesso tipo = blocco pieno
+      if (hd.slab && cur === id) {
+        const top = curMeta & 1;
+        if ((n[1] === 1 && !top) || (n[1] === -1 && top)) {
+          w.urgent = true; const ok = w.setBlock(tx, ty, tz, B[hd.slab], 0); w.urgent = false;
+          if (ok) this.audio.place(id);
+          return ok;
+        }
+      }
       const inPlace = REPLACEABLE[cur] && !FLUID[cur] && cur !== id;
       if (!inPlace) { tx += n[0]; ty += n[1]; tz += n[2]; }
       if (ty < 0 || ty >= WH) return false;
       const existing = w.getBlock(tx, ty, tz);
+      if (hd.slab && existing === id) {
+        const top = w.getMeta(tx, ty, tz) & 1;
+        w.urgent = true; const ok = w.setBlock(tx, ty, tz, B[hd.slab], 0); w.urgent = false;
+        if (ok) this.audio.place(id);
+        return ok && !!top === !!top;
+      }
       if (!REPLACEABLE[existing] || existing === id) return false;
-      if (FLUID[existing] && (hd.shape === 'cross' || hd.shape === 'torch')) return false;
+      if (FLUID[existing] && (hd.shape === 'cross' || hd.shape === 'torch' || hd.door || hd.ladder)) return false;
       let meta = 0;
+      const d = p.dir();
+      const dirIdx = Math.abs(d[0]) > Math.abs(d[2]) ? (d[0] > 0 ? 1 : 3) : (d[2] > 0 ? 2 : 0); // 0 -Z,1 +X,2 +Z,3 -X
+      const upperHalf = hit.hit ? hit.hit[1] - (inPlace ? 0 : 0) > 0.5 : false;
       if (hd.shape === 'torch') {
         if (inPlace || n[1] === 1) { if (!OPAQUE[w.getBlock(tx, ty - 1, tz)]) return false; meta = 0; }
         else if (n[1] === -1) { if (!OPAQUE[w.getBlock(tx, ty - 1, tz)]) return false; meta = 0; }
@@ -683,27 +903,37 @@
           meta = n[0] === 1 ? 1 : n[0] === -1 ? 2 : n[2] === 1 ? 3 : 4;
         }
       }
+      if (hd.ladder) {
+        if (n[1] !== 0 || !OPAQUE[hit.id]) return false;
+        meta = n[0] === 1 ? 1 : n[0] === -1 ? 2 : n[2] === 1 ? 3 : 4;
+      }
+      if (hd.slab) meta = n[1] === -1 || (n[1] === 0 && upperHalf) ? 1 : 0;
+      if (hd.stairs) meta = dirIdx | (n[1] === -1 || (n[1] === 0 && upperHalf) ? 4 : 0);
+      if (hd.door) {
+        if (ty + 1 >= WH || !REPLACEABLE[w.getBlock(tx, ty + 1, tz)] || !SOLID[w.getBlock(tx, ty - 1, tz)]) return false;
+        meta = dirIdx;
+      }
       if (hd.support && !hd.support(w.getBlock(tx, ty - 1, tz))) return false;
       if (hd.shape === 'cactus') {
         for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (SOLID[w.getBlock(tx + dx, ty, tz + dz)]) return false;
       }
       if (hd.axis) meta = n[0] ? 1 : n[2] ? 2 : 0;
-      if (hd.facing) {
-        const d = p.dir();
-        meta = Math.abs(d[0]) > Math.abs(d[2]) ? (d[0] > 0 ? 1 : 0) : (d[2] > 0 ? 5 : 4);
-      }
+      if (hd.facing) meta = Math.abs(d[0]) > Math.abs(d[2]) ? (d[0] > 0 ? 1 : 0) : (d[2] > 0 ? 5 : 4);
       if (SOLID[id]) {
-        const cb = MC.getCollisionBox(id);
-        const bx0 = tx + cb[0], by0 = ty + cb[1], bz0 = tz + cb[2], bx1 = tx + cb[3], by1 = ty + cb[4], bz1 = tz + cb[5];
+        const boxes = MC.getCollisionBoxes(id, meta, 0) || [];
         const pb = p.bbox();
-        if (pb[3] > bx0 && pb[0] < bx1 && pb[4] > by0 && pb[1] < by1 && pb[5] > bz0 && pb[2] < bz1) return false;
-        for (const m of this.entities.mobs) {
-          const hw = m.M.w / 2;
-          if (m.x + hw > bx0 && m.x - hw < bx1 && m.y + m.M.h > by0 && m.y < by1 && m.z + hw > bz0 && m.z - hw < bz1) return false;
+        for (const cb of boxes) {
+          const bx0 = tx + cb[0], by0 = ty + cb[1], bz0 = tz + cb[2], bx1 = tx + cb[3], by1 = ty + Math.min(1, cb[4]) + (hd.door ? 1 : 0), bz1 = tz + cb[5];
+          if (pb[3] > bx0 && pb[0] < bx1 && pb[4] > by0 && pb[1] < by1 && pb[5] > bz0 && pb[2] < bz1) return false;
+          for (const m of this.entities.mobs) {
+            const hw = m.M.w / 2;
+            if (m.x + hw > bx0 && m.x - hw < bx1 && m.y + m.M.h > by0 && m.y < by1 && m.z + hw > bz0 && m.z - hw < bz1) return false;
+          }
         }
       }
       w.urgent = true;
       const ok = w.setBlock(tx, ty, tz, id, meta);
+      if (ok && hd.door) w.setBlock(tx, ty + 1, tz, id, meta | 8);
       w.urgent = false;
       if (ok) this.audio.place(id);
       return ok;
@@ -808,14 +1038,14 @@
       }
       this.inventory.slots = new Array(36).fill(null);
       this.inventory._ch();
-      const msgs = { fall: 'Sei caduto da troppo in alto', drown: 'Sei annegato', lava: 'Hai provato a nuotare nella lava', explosion: 'Sei saltato in aria', zombie: 'Sei stato ucciso da uno zombie', cactus: 'Sei stato punto a morte', void: 'Sei caduto fuori dal mondo', kill: 'Sei morto' };
+      const msgs = { fall: 'Sei caduto da troppo in alto', drown: 'Sei annegato', lava: 'Hai provato a nuotare nella lava', explosion: 'Sei saltato in aria', zombie: 'Sei stato ucciso da uno zombie', cactus: 'Sei stato punto a morte', void: 'Sei caduto fuori dal mondo', kill: 'Sei morto', arrow: 'Sei stato colpito da uno scheletro', spider: 'Sei stato ucciso da un ragno', golem: 'Sei stato ucciso da un golem di ferro', starve: 'Sei morto di fame' };
       this.ui.showDeath(msgs[this.lastHurt] || 'Sei morto');
       document.getElementById('click-to-play').classList.add('hidden');
     }
 
     respawn() {
       const p = this.player;
-      p.dead = false; p.health = 20; p.air = 300; p.vx = p.vy = p.vz = 0; p.fallDist = 0; p.hurtTime = 0; p.flying = false;
+      p.dead = false; p.health = 20; p.air = 300; p.food = 20; p.sat = 5; p.exh = 0; p.vx = p.vy = p.vz = 0; p.fallDist = 0; p.hurtTime = 0; p.flying = false;
       p.x = this.meta.spawn.x; p.z = this.meta.spawn.z; p.y = 150;
       this.pendingSpawn = true;
       this.ui.hideScreens();
@@ -861,6 +1091,14 @@
           break;
         }
         case 'seed': say('Seme: ' + this.meta.seedText + ' (' + this.meta.seed + ')'); break;
+        case 'locate': {
+          const vs = this.world.gen.villagesNear(p.x, p.z, 3000);
+          if (!vs.length) { say('Nessun villaggio entro 3000 blocchi'); return; }
+          vs.sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
+          const v = vs[0];
+          say('Villaggio più vicino: ' + v.x + ' ~ ' + v.z + ' (' + Math.round(Math.hypot(v.x - p.x, v.z - p.z)) + ' blocchi). Usa /tp ' + v.x + ' 120 ' + v.z);
+          break;
+        }
         case 'weather': {
           const v = (a[1] || '').toLowerCase();
           if (v === 'rain' || v === 'pioggia') { this.rainTarget = 1; this.weatherTimer = 12000; say('Arriva la pioggia'); }
@@ -872,7 +1110,7 @@
           const q = (a[1] || '').toLowerCase();
           const n = Math.max(1, Math.min(640, parseInt(a[2], 10) || 64));
           let id = B[q];
-          if (id === undefined) { const d = MC.blocks.find((b) => b.name.toLowerCase() === q.replace(/_/g, ' ') || b.name.toLowerCase().includes(q.replace(/_/g, ' '))); if (d) id = d.id; }
+          if (id === undefined) { const d = MC.defs.find((b) => b.name.toLowerCase() === q.replace(/_/g, ' ') || b.name.toLowerCase().includes(q.replace(/_/g, ' '))); if (d) id = d.id; }
           if (!id) { say('Blocco sconosciuto: ' + q); return; }
           const left = this.inventory.add(id, n);
           say('Dati ' + (n - left) + ' × ' + MC.blocks[id].name);
@@ -880,7 +1118,7 @@
         }
         case 'spawn': case 'summon': {
           const t = (a[1] || '').toLowerCase();
-          if (!MC.MOB_MODELS[t]) { say('Creature: pig, cow, sheep, chicken, zombie'); return; }
+          if (!MC.mobs.DEFS[t]) { say('Creature: ' + Object.keys(MC.mobs.DEFS).join(', ')); return; }
           const d = p.dir();
           this.entities.spawnMob(t, p.x + d[0] * 3, p.y + 0.5, p.z + d[2] * 3);
           say('Evocato: ' + t);
@@ -888,7 +1126,7 @@
         }
         case 'kill': if (p.mode === 'survival') { this.lastHurt = 'kill'; p.health = 0; p.dead = true; } else say('Solo in sopravvivenza'); break;
         case 'help': case 'aiuto':
-          say('/time set day|night · /gamemode creative|survival · /tp x y z · /seed · /weather clear|rain · /give blocco n · /spawn creatura · /kill');
+          say('/time set day|night · /gamemode creative|survival · /tp x y z · /seed · /weather clear|rain · /give oggetto n · /spawn creatura · /locate · /kill');
           break;
         default: say('Comando sconosciuto. Scrivi /help');
       }
@@ -1056,9 +1294,22 @@
       const hEnv = { fogCol: env.fogCol, fog: [100, 200] };
       if (held) {
         const d = MC.blocks[held.id];
-        if (d.shape === 'cross' || d.shape === 'torch') {
-          mat4.rotY(T, 0.72); mat4.mul(M, M, T);
-          MC.drawItemModel(r.batch, M, held.id, 0.55, l);
+        const flat = d.shape === 'cross' || d.shape === 'torch' || d.shape === 'item' || d.shape === 'crop' || d.ladder || d.door || d.conn === 'pane';
+        if (this.eating) {
+          const e = this.eating.t;
+          mat4.translate(T, -0.35, 0.18 + Math.abs(Math.sin(e * 14)) * 0.04, 0.15); mat4.mul(M, M, T);
+          mat4.rotY(T, 0.9); mat4.mul(M, M, T);
+        }
+        if (d.bow && this.bowCharge > 0) {
+          mat4.translate(T, -0.3, 0.1, 0.1); mat4.mul(M, M, T);
+          mat4.rotY(T, 0.6); mat4.mul(M, M, T);
+          mat4.rotZ(T, -0.4); mat4.mul(M, M, T);
+          mat4.translate(T, 0, 0, this.bowCharge * 0.12); mat4.mul(M, M, T);
+        }
+        if (flat) {
+          mat4.rotY(T, 0.72 - (d.tool || d.bow ? 0.1 : 0)); mat4.mul(M, M, T);
+          if (d.tool) { mat4.rotZ(T, 0.25); mat4.mul(M, M, T); mat4.translate(T, 0, -0.05, 0); mat4.mul(M, M, T); }
+          MC.drawItemModel(r.batch, M, held.id, d.tool ? 0.62 : 0.52, l);
         } else {
           mat4.translate(T, 0, -0.1, 0); mat4.mul(M, M, T);
           MC.drawItemModel(r.batch, M, held.id, 0.42, l);

@@ -6,7 +6,21 @@
 
   const TABS = [
     ['all', 'Tutti'], ['build', 'Costruzione'], ['nature', 'Natura'], ['ores', 'Minerali'], ['color', 'Colori'], ['deco', 'Decorazione'],
+    ['tools', 'Attrezzi'], ['food', 'Cibo'], ['items', 'Materiali'], ['eggs', 'Uova'],
   ];
+
+  function durBar(id, dmg) {
+    const d = MC.blocks[id];
+    const f = Math.max(0, 1 - dmg / d.durability);
+    const bar = document.createElement('span');
+    bar.className = 'dur';
+    const fill = document.createElement('i');
+    fill.style.width = Math.round(f * 100) + '%';
+    fill.style.background = 'hsl(' + Math.round(f * 120) + ',90%,45%)';
+    bar.appendChild(fill);
+    return bar;
+  }
+  MC.durBar = durBar;
 
   class UI {
     constructor(game) {
@@ -209,6 +223,8 @@
         const id = st ? st.id : 0, n = st ? st.count : 0;
         if (e.id !== id) { e.id = id; if (id) { e.img.src = MC.icon(id); e.img.style.visibility = 'visible'; } else e.img.style.visibility = 'hidden'; }
         if (e.n !== n) { e.n = n; e.cnt.textContent = n > 1 && this.game.player.mode === 'survival' ? n : ''; }
+        const dm = st && st.dmg ? st.dmg : 0;
+        if (e.dm !== dm) { e.dm = dm; if (e.bar) { e.bar.remove(); e.bar = null; } if (dm) { e.bar = durBar(id, dm); e.s.appendChild(e.bar); } }
         e.s.classList.toggle('sel', i === inv.selected);
       }
     }
@@ -226,12 +242,13 @@
       const p = this.game.player;
       const hearts = $('hearts'), bub = $('bubbles');
       if (p.mode !== 'survival') {
-        if (hearts.childNodes.length) { hearts.innerHTML = ''; bub.innerHTML = ''; this._lastBars = ''; }
+        if (hearts.childNodes.length) { hearts.innerHTML = ''; bub.innerHTML = ''; document.getElementById('hunger').innerHTML = ''; this._lastBars = ''; }
         return;
       }
       const hp = Math.ceil(p.health);
       const air = p.eyeInWater || p.air < 300 ? Math.ceil(p.air / 30) : -1;
-      const key = hp + ':' + air;
+      const fd = Math.ceil(p.food);
+      const key = hp + ':' + air + ':' + fd;
       if (key === this._lastBars) return;
       this._lastBars = key;
       hearts.innerHTML = '';
@@ -243,6 +260,14 @@
       }
       bub.innerHTML = '';
       if (air >= 0) for (let i = 0; i < air; i++) { const img = document.createElement('img'); img.src = MC.hudIcon('bubble'); bub.appendChild(img); }
+      const hu = document.getElementById('hunger');
+      hu.innerHTML = '';
+      for (let i = 0; i < 10; i++) {
+        const img = document.createElement('img');
+        const v = fd - i * 2;
+        img.src = MC.hudIcon(v >= 2 ? 'food' : v === 1 ? 'food_half' : 'food_empty');
+        hu.appendChild(img);
+      }
     }
 
     setDebug(txt) { $('debug').textContent = txt; }
@@ -278,11 +303,14 @@
     }
 
     // ---------------- Inventario ----------------
-    openInventory(station) {
+    openInventory(station, chest) {
       this.station = station || null;
-      const creative = this.game.player.mode === 'creative';
+      this.chest = chest || null;
+      const creative = this.game.player.mode === 'creative' && !chest;
       $('inv-creative').classList.toggle('hidden', !creative);
       $('inv-survival').classList.toggle('hidden', creative);
+      $('inv-chest').classList.toggle('hidden', !chest);
+      document.querySelector('.craft-col').classList.toggle('hidden', !!chest);
       $('craft-label').textContent = station === 'furnace' ? 'Fornace e creazione' : station === 'table' ? 'Banco da lavoro' : 'Creazione';
       $('inv-hint').textContent = creative
         ? 'Clic: prendi 64 · Clic destro: prendi 1 · Maiusc+clic: metti nella barra · Tasti 1-9 sopra un blocco: assegna allo slot'
@@ -293,6 +321,7 @@
     }
 
     closeInventory() {
+      this.chest = null;
       if (this.cursor) {
         if (this.game.player.mode === 'survival') {
           const left = this.game.inventory.add(this.cursor.id, this.cursor.count);
@@ -321,7 +350,7 @@
       const el = $('inv-grid');
       el.innerHTML = '';
       const q = $('inv-search').value.trim().toLowerCase();
-      for (const d of MC.blocks) {
+      for (const d of MC.defs) {
         if (!d.creative || !d.tex) continue;
         if (q) { if (!d.name.toLowerCase().includes(q) && !d.key.includes(q)) continue; }
         else if (this.tab !== 'all' && d.cat !== this.tab) continue;
@@ -333,8 +362,8 @@
             const inv = this.game.inventory;
             let idx = inv.slots.slice(0, 9).findIndex((x) => !x);
             if (idx < 0) idx = inv.selected;
-            inv.set(idx, { id: d.id, count: MC.STACK });
-          } else this.cursor = { id: d.id, count: e.button === 2 ? 1 : MC.STACK };
+            inv.set(idx, { id: d.id, count: MC.stackOf(d.id) });
+          } else this.cursor = { id: d.id, count: e.button === 2 ? 1 : MC.stackOf(d.id) };
           this._renderCursor();
           this.renderInventory();
         });
@@ -344,7 +373,7 @@
       }
     }
 
-    _slotEl(id, count) {
+    _slotEl(id, count, dmg) {
       const s = document.createElement('div');
       s.className = 'slot';
       if (id) {
@@ -353,6 +382,7 @@
         img.alt = '';
         s.appendChild(img);
         if (count > 1) { const c = document.createElement('span'); c.className = 'count'; c.textContent = count; s.appendChild(c); }
+        if (dmg) s.appendChild(durBar(id, dmg));
       }
       return s;
     }
@@ -378,7 +408,19 @@
 
     renderInventory() {
       const inv = this.game.inventory;
-      const creative = this.game.player.mode === 'creative';
+      const creative = this.game.player.mode === 'creative' && !this.chest;
+      if (this.chest) {
+        const cg = $('chest-grid');
+        cg.innerHTML = '';
+        for (let i = 0; i < 27; i++) {
+          const st = this.chest[i];
+          const el = this._slotEl(st ? st.id : 0, st ? st.count : 0, st ? st.dmg : 0);
+          el.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); this._containerClick(this.chest, i, e.button, e.shiftKey, true); });
+          el.addEventListener('mouseenter', () => { const x = this.chest[i]; this._tip(x ? MC.blocks[x.id].name : null); });
+          el.addEventListener('mouseleave', () => this._tip(null));
+          cg.appendChild(el);
+        }
+      }
       const hb = $('inv-hotbar');
       hb.innerHTML = '';
       for (let i = 0; i < 9; i++) hb.appendChild(this._invSlot(i, creative));
@@ -392,9 +434,10 @@
     }
 
     _invSlot(i, creative) {
+      creative = creative && !this.chest;
       const inv = this.game.inventory;
       const st = inv.slots[i];
-      const s = this._slotEl(st ? st.id : 0, creative ? 0 : st ? st.count : 0);
+      const s = this._slotEl(st ? st.id : 0, creative ? 0 : st ? st.count : 0, st ? st.dmg : 0);
       if (i === inv.selected) s.classList.add('selected');
       s.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); this._slotClick(i, e.button, e.shiftKey); });
       s.addEventListener('mouseenter', () => { this.hoverSlot = { inv: i }; const x = inv.slots[i]; this._tip(x ? MC.blocks[x.id].name : null); });
@@ -402,12 +445,79 @@
       return s;
     }
 
+    _containerClick(arr, i, button, shift) {
+      const inv = this.game.inventory;
+      const st = arr[i];
+      const cur = this.cursor;
+      const max = (id) => MC.stackOf(id);
+      if (shift && !cur && st) {
+        const left = inv.add(st.id, st.count, st.dmg);
+        if (left) st.count = left; else arr[i] = null;
+      } else if (!cur) {
+        if (st) {
+          if (button === 2) { const half = Math.ceil(st.count / 2); this.cursor = { id: st.id, count: half, dmg: st.dmg }; st.count -= half; if (st.count <= 0) arr[i] = null; }
+          else { this.cursor = st; arr[i] = null; }
+        }
+      } else if (!st) {
+        if (button === 2) { arr[i] = { id: cur.id, count: 1, dmg: cur.dmg }; cur.count--; if (cur.count <= 0) this.cursor = null; }
+        else { arr[i] = cur; this.cursor = null; }
+      } else if (st.id === cur.id && max(st.id) > 1) {
+        const m = Math.min(max(st.id) - st.count, button === 2 ? 1 : cur.count);
+        st.count += m; cur.count -= m; if (cur.count <= 0) this.cursor = null;
+      } else { arr[i] = cur; this.cursor = st; }
+      this._renderCursor();
+      this.renderInventory();
+      this.game.chestChanged();
+    }
+
+    // mostra gli scambi di un villico
+    openTrade(m) {
+      this.trader = m;
+      $('trade-title').textContent = 'Scambi · ' + (m.name || 'Villico');
+      this.show('screen-trade');
+      this._renderTrades();
+    }
+    _renderTrades() {
+      const m = this.trader, inv = this.game.inventory;
+      const el = $('trade-list');
+      el.innerHTML = '';
+      for (const t of m.trades) {
+        const ok = t.ins.every(([id, n]) => inv.count(id) >= n) || this.game.player.mode === 'creative';
+        const row = document.createElement('div');
+        row.className = 'trade' + (ok ? '' : ' off');
+        for (const [id, n] of t.ins) {
+          const img = document.createElement('img'); img.src = MC.icon(id); row.appendChild(img);
+          const c = document.createElement('span'); c.className = 'n'; c.textContent = '×' + n; row.appendChild(c);
+        }
+        const ar = document.createElement('span'); ar.className = 'arrow'; ar.textContent = '→'; row.appendChild(ar);
+        const img = document.createElement('img'); img.src = MC.icon(t.out[0]); row.appendChild(img);
+        const c = document.createElement('span'); c.className = 'n'; c.textContent = '×' + t.out[1] + ' ' + MC.blocks[t.out[0]].name; row.appendChild(c);
+        row.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          if (!t.ins.every(([id, n]) => inv.count(id) >= n) && this.game.player.mode !== 'creative') return;
+          if (this.game.player.mode !== 'creative') for (const [id, n] of t.ins) inv.remove(id, n);
+          const left = inv.add(t.out[0], t.out[1]);
+          if (left) this.game.throwStack(t.out[0], left);
+          this.game.audio.mob('villager', false, 0.8);
+          this._renderTrades();
+        });
+        el.appendChild(row);
+      }
+    }
+
     _slotClick(i, button, shift) {
       const inv = this.game.inventory;
-      const creative = this.game.player.mode === 'creative';
+      const creative = this.game.player.mode === 'creative' && !this.chest;
       const st = inv.slots[i];
       const cur = this.cursor;
-      if (shift && !cur && st) {
+      if (shift && !cur && st && this.chest) {
+        let n = st.count;
+        for (let k = 0; k < 27 && n > 0; k++) { const o = this.chest[k]; if (o && o.id === st.id && o.count < MC.stackOf(st.id)) { const m = Math.min(MC.stackOf(st.id) - o.count, n); o.count += m; n -= m; } }
+        for (let k = 0; k < 27 && n > 0; k++) if (!this.chest[k]) { this.chest[k] = { id: st.id, count: n, dmg: st.dmg }; n = 0; }
+        if (n > 0) st.count = n; else inv.slots[i] = null;
+        inv._ch();
+        this.game.chestChanged();
+      } else if (shift && !cur && st) {
         if (creative) { inv.set(i, null); }
         else {
           // sposta tra barra rapida e inventario
@@ -415,7 +525,7 @@
           let n = st.count;
           for (let k = range[0]; k < range[1] && n > 0; k++) {
             const o = inv.slots[k];
-            if (o && o.id === st.id && o.count < MC.STACK) { const m = Math.min(MC.STACK - o.count, n); o.count += m; n -= m; }
+            if (o && o.id === st.id && o.count < MC.stackOf(st.id)) { const m = Math.min(MC.stackOf(st.id) - o.count, n); o.count += m; n -= m; }
           }
           for (let k = range[0]; k < range[1] && n > 0; k++) {
             if (!inv.slots[k]) { inv.slots[k] = { id: st.id, count: n }; n = 0; }
@@ -438,8 +548,8 @@
           else { inv.slots[i] = cur; this.cursor = null; }
         } else if (st.id === cur.id) {
           if (creative) { this.cursor = null; }
-          else if (button === 2) { if (st.count < MC.STACK) { st.count++; cur.count--; if (cur.count <= 0) this.cursor = null; } }
-          else { const m = Math.min(MC.STACK - st.count, cur.count); st.count += m; cur.count -= m; if (cur.count <= 0) this.cursor = null; }
+          else if (button === 2) { if (st.count < MC.stackOf(st.id)) { st.count++; cur.count--; if (cur.count <= 0) this.cursor = null; } }
+          else { const m = Math.min(MC.stackOf(st.id) - st.count, cur.count); st.count += m; cur.count -= m; if (cur.count <= 0) this.cursor = null; }
         } else {
           inv.slots[i] = cur; this.cursor = st;
         }
@@ -455,7 +565,7 @@
       const inv = this.game.inventory;
       const h = this.hoverSlot;
       if (!h) { inv.selected = n; this.renderInventory(); return; }
-      if (h.creative !== undefined) inv.set(n, { id: h.creative, count: MC.STACK });
+      if (h.creative !== undefined) inv.set(n, { id: h.creative, count: MC.stackOf(h.creative) });
       else if (h.inv !== undefined && h.inv !== n) {
         const a = inv.slots[h.inv];
         inv.slots[h.inv] = inv.slots[n];

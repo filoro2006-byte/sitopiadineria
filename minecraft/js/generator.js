@@ -388,7 +388,7 @@
           const rng = mulberry32((this.seed ^ Math.imul(wx, 0x2545f491) ^ Math.imul(wz, 0x9e3779b9)) >>> 0);
           const groundOk = (sid === B.grass || sid === B.podzol || sid === B.snowy_grass || sid === B.dirt || sid === B.coarse_dirt || sid === B.moss_block) && s >= SEA && s < WH - 20;
 
-          if (groundOk && r < TREE_DENSITY[biome]) {
+          if (groundOk && r < TREE_DENSITY[biome] && !this.inVillage(wx, wz)) {
             this.tree(biome, wx, s, wz, rng, put);
             continue;
           }
@@ -468,6 +468,7 @@
         }
       }
       void self;
+      this._populateVillages(c);
     }
 
     _clearAround(blocks, x, y, z) {
@@ -642,6 +643,237 @@
         let bx2 = x, bz2 = z;
         for (let k = 1; k <= 2; k++) { bx2 += ox2; bz2 += oz2; put(bx2, y + bend + k, bz2, B.acacia_log, 1); }
         for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) if (Math.abs(dx) + Math.abs(dz) <= 3) put(bx2 + dx, y + bend + 3, bz2 + dz, B.acacia_leaves, 2);
+      }
+    }
+
+    // ---------------- Villaggi ----------------
+    villageInCell(gx, gz) {
+      if (this.type !== 'normal') return null;
+      if (!this._vcache) this._vcache = new Map();
+      const key = gx * 100003 + gz;
+      if (this._vcache.has(key)) return this._vcache.get(key);
+      let v = null;
+      const VC = 400;
+      if (hash2(this.seed ^ 0x51ab, gx, gz) < 0.62) {
+        const x = gx * VC + 70 + Math.floor(hash2(this.seed ^ 0x1234, gx, gz) * (VC - 140));
+        const z = gz * VC + 70 + Math.floor(hash2(this.seed ^ 0x4321, gx, gz) * (VC - 140));
+        this.column(x, z, col);
+        const b = this.biomeOf(col);
+        const ok = [BI.PLAINS, BI.MEADOW, BI.SAVANNA, BI.DESERT, BI.TAIGA, BI.SNOWY_PLAINS].includes(b);
+        if (ok && col.h > SEA + 1.5 && col.h < SEA + 28 && col.amp < 7 && col.river < 0.2) {
+          v = this._planVillage(x, z, b, hash2(this.seed ^ 0x77, gx, gz));
+        }
+      }
+      this._vcache.set(key, v);
+      return v;
+    }
+
+    villagesNear(x, z, r) {
+      const VC = 400, out = [];
+      const g0x = Math.floor((x - r - 200) / VC), g1x = Math.floor((x + r + 200) / VC);
+      const g0z = Math.floor((z - r - 200) / VC), g1z = Math.floor((z + r + 200) / VC);
+      for (let gz = g0z; gz <= g1z; gz++) for (let gx = g0x; gx <= g1x; gx++) {
+        const v = this.villageInCell(gx, gz);
+        if (v && Math.abs(v.x - x) < r + v.R && Math.abs(v.z - z) < r + v.R) out.push(v);
+      }
+      return out;
+    }
+
+    inVillage(x, z) {
+      const vs = this.villagesNear(x, z, 0);
+      for (const v of vs) if (Math.hypot(x - v.x, z - v.z) < v.R) return true;
+      return false;
+    }
+
+    _planVillage(x, z, biome, hseed) {
+      const rng = mulberry32((hseed * 4294967296) >>> 0);
+      const floorAt = (bx, bz) => { this.column(bx, bz, col); return Math.round(col.h + 0.3); };
+      const v = { x, z, biome, roads: [], buildings: [], R: 20, size: 0 };
+      v.wellY = floorAt(x, z);
+      v.buildings.push({ type: 'well', x0: x - 2, z0: z - 2, w: 5, d: 5, rot: 0, y: v.wellY });
+      const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+      let smith = false;
+      for (let di = 0; di < 4; di++) {
+        if (rng() < 0.12) continue;
+        const L = 18 + Math.floor(rng() * 20);
+        const [rx, rz] = DIRS[di];
+        v.roads.push({ x0: x + rx * 3, z0: z + rz * 3, x1: x + rx * L, z1: z + rz * L });
+        v.R = Math.max(v.R, L + 14);
+        let side = rng() < 0.5 ? 1 : -1;
+        for (let t = 7; t < L - 2; t += 9 + Math.floor(rng() * 3)) {
+          side = -side;
+          const sx = -rz * side, sz = rx * side; // perpendicolare
+          const roll = rng();
+          let type = roll < 0.42 ? 'house' : roll < 0.62 ? 'bighouse' : roll < 0.85 ? 'farm' : 'smith';
+          if (type === 'smith' && smith) type = 'house';
+          if (type === 'smith') smith = true;
+          const dims = { house: [5, 5], bighouse: [7, 6], farm: [9, 7], smith: [7, 7] }[type];
+          // la porta (fronte locale -Z) guarda la strada: direzione verso la strada = -s
+          const toRoad = [-sx, -sz];
+          const rot = DIRS.findIndex((d) => d[0] === toRoad[0] && d[1] === toRoad[1]);
+          const W = rot % 2 ? dims[1] : dims[0], D = rot % 2 ? dims[0] : dims[1];
+          const dist = 3 + (rot % 2 ? dims[1] : dims[1]) / 2;
+          const cx = x + rx * t + sx * (dist + 0.5), cz = z + rz * t + sz * (dist + 0.5);
+          const x0 = Math.round(cx - W / 2), z0 = Math.round(cz - D / 2);
+          const b = { type, x0, z0, w: W, d: D, lw: dims[0], ld: dims[1], rot, y: floorAt(x0 + (W >> 1), z0 + (D >> 1)) };
+          // evita sovrapposizioni
+          if (v.buildings.some((o) => x0 < o.x0 + o.w + 1 && x0 + W + 1 > o.x0 && z0 < o.z0 + o.d + 1 && z0 + D + 1 > o.z0)) continue;
+          v.buildings.push(b);
+          v.size++;
+        }
+        // lampione a fine strada
+        const lx = x + rx * (L - 1) + (-rz) * 2, lz = z + rz * (L - 1) + rx * 2;
+        v.buildings.push({ type: 'lamp', x0: lx, z0: lz, w: 1, d: 1, lw: 1, ld: 1, rot: 0, y: floorAt(lx, lz) });
+      }
+      v.desert = biome === BI.DESERT;
+      v.snowy = biome === BI.SNOWY_PLAINS;
+      v.taiga = biome === BI.TAIGA;
+      return v;
+    }
+
+    _populateVillages(c) {
+      const bx = c.cx * 16, bz = c.cz * 16;
+      const vs = this.villagesNear(bx + 8, bz + 8, 24);
+      if (!vs.length) return;
+      const blocks = c.blocks;
+      const inside = (x, z) => x >= bx && x < bx + 16 && z >= bz && z < bz + 16;
+      const setW = (x, y, z, id, meta) => {
+        if (!inside(x, z) || y < 1 || y >= WH) return;
+        const i = (y << 8) | ((z - bz) << 4) | (x - bx);
+        blocks[i] = id;
+        c.setMeta(i, meta || 0);
+      };
+      const getW = (x, y, z) => (inside(x, z) && y >= 0 && y < WH ? blocks[(y << 8) | ((z - bz) << 4) | (x - bx)] : 0);
+      const soft = (b) => b === 0 || b === B.water || MC.BL.REPLACEABLE[b] || (MC.blocks[b] && (MC.blocks[b].key.endsWith('_leaves') || MC.blocks[b].key.endsWith('_log') || MC.blocks[b].shape === 'cross'));
+      for (const v of vs) {
+        const wood = v.taiga || v.snowy ? 'spruce' : 'oak';
+        const M = {
+          planks: v.desert ? B.cut_sandstone : B[wood + '_planks'], log: v.desert ? B.sandstone : B[wood + '_log'],
+          floor: v.desert ? B.sandstone : B.cobblestone, stairs: v.desert ? B.sandstone_stairs : B[wood === 'spruce' ? 'spruce_stairs' : 'oak_stairs'],
+          slab: v.desert ? B.sandstone_slab : B[wood === 'spruce' ? 'spruce_slab' : 'oak_slab'], fence: wood === 'spruce' ? B.spruce_fence : B.oak_fence,
+        };
+        // strade
+        for (const r of v.roads) {
+          const minx = Math.min(r.x0, r.x1) - 1, maxx = Math.max(r.x0, r.x1) + 1, minz = Math.min(r.z0, r.z1) - 1, maxz = Math.max(r.z0, r.z1) + 1;
+          for (let z = Math.max(minz, bz); z <= Math.min(maxz, bz + 15); z++) for (let x = Math.max(minx, bx); x <= Math.min(maxx, bx + 15); x++) {
+            const ci = ((z - bz) << 4) | (x - bx);
+            let y = c.surf[ci];
+            const top = blocks[(y << 8) | ci];
+            if (top === B.water || top === B.ice) { setW(x, MC.SEA, z, M.planks, 0); continue; }
+            setW(x, y, z, v.desert ? B.smooth_stone : B.dirt_path, 0);
+            for (let k = 1; k <= 4; k++) { const b = getW(x, y + k, z); if (b && soft(b)) setW(x, y + k, z, 0, 0); }
+          }
+        }
+        // edifici
+        for (const b of v.buildings) {
+          if (b.x0 > bx + 15 || b.x0 + b.w < bx || b.z0 > bz + 15 || b.z0 + b.d < bz) continue;
+          this._buildStructure(b, M, v, setW, getW, soft, bx, bz);
+        }
+      }
+    }
+
+    _buildStructure(b, M, v, setW, getW, soft) {
+      const lw = b.lw, ld = b.ld, rot = b.rot, Y = b.y;
+      // trasforma coordinate locali -> mondo
+      const T = (lx, lz) => {
+        let x = lx, z = lz;
+        if (rot === 1) { x = ld - 1 - lz; z = lx; }
+        else if (rot === 2) { x = lw - 1 - lx; z = ld - 1 - lz; }
+        else if (rot === 3) { x = lz; z = lw - 1 - lx; }
+        return [b.x0 + x, b.z0 + z];
+      };
+      const rf = (f) => (f + rot) & 3; // ruota una direzione (0 -Z, 1 +X, 2 +Z, 3 -X)
+      const dirToFace = [5, 0, 4, 1]; // direzione -> indice faccia (per i blocchi orientati)
+      const dirToWall = [3, 2, 4, 1]; // direzione del muro -> meta torce/scale (muro a -Z =3, +X =2, +Z =4, -X =1)
+      const S = (lx, ly, lz, id, meta) => { const [x, z] = T(lx, lz); setW(x, Y + ly, z, id, meta || 0); };
+      const Ffill = (x0, y0, z0, x1, y1, z1, id, meta) => { for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) S(x, y, z, id, meta); };
+      const stairs = (lx, ly, lz, dir) => S(lx, ly, lz, M.stairs, rf(dir));
+      // fondamenta e pulizia
+      const H = b.type === 'bighouse' ? 9 : b.type === 'house' ? 8 : b.type === 'well' ? 5 : 4;
+      if (b.type !== 'lamp') {
+        for (let lz = 0; lz < ld; lz++) for (let lx = 0; lx < lw; lx++) {
+          const [x, z] = T(lx, lz);
+          for (let y = Y + 1; y <= Y + H; y++) setW(x, y, z, 0, 0);
+          for (let k = 0; k < 10; k++) { const y = Y - k; const cur = getW(x, y, z); if (k > 0 && cur && !soft(cur)) break; setW(x, y, z, k === 0 && b.type === 'farm' ? B.dirt : M.floor, 0); }
+        }
+      }
+      if (b.type === 'well') {
+        Ffill(0, 0, 0, 4, 0, 4, M.floor);
+        Ffill(1, -3, 1, 3, 0, 3, M.floor);
+        Ffill(2, -2, 2, 2, 0, 2, B.water);
+        Ffill(1, 1, 1, 3, 1, 3, M.floor); S(2, 1, 2, B.water);
+        for (const [x, z] of [[1, 1], [3, 1], [1, 3], [3, 3]]) { S(x, 2, z, M.fence); S(x, 3, z, M.fence); }
+        Ffill(1, 4, 1, 3, 4, 3, M.slab);
+        return;
+      }
+      if (b.type === 'lamp') {
+        const [x, z] = T(0, 0);
+        let y = Y;
+        for (let k = 0; k < 6; k++) { if (getW(x, y, z) && !soft(getW(x, y, z))) break; y--; }
+        setW(x, y + 1, z, M.fence); setW(x, y + 2, z, M.fence); setW(x, y + 3, z, B.lantern);
+        return;
+      }
+      if (b.type === 'farm') {
+        Ffill(0, 0, 0, lw - 1, 0, ld - 1, M.log, rot % 2 ? 2 : 1);
+        for (let lz = 1; lz < ld - 1; lz++) for (let lx = 1; lx < lw - 1; lx++) {
+          if (lx === (lw >> 1)) { S(lx, 0, lz, B.water); continue; }
+          S(lx, 0, lz, B.farmland);
+          const st = 2 + Math.floor(hash2(this.seed, b.x0 * 31 + lx, b.z0 * 17 + lz) * 6);
+          S(lx, 1, lz, B.wheat, st);
+        }
+        return;
+      }
+      if (b.type === 'house') {
+        Ffill(0, 0, 0, 4, 0, 4, M.floor);
+        for (let y = 1; y <= 3; y++) for (let lz = 0; lz < 5; lz++) for (let lx = 0; lx < 5; lx++) {
+          const edge = lx === 0 || lz === 0 || lx === 4 || lz === 4;
+          if (!edge) continue;
+          const corner = (lx === 0 || lx === 4) && (lz === 0 || lz === 4);
+          S(lx, y, lz, corner ? M.log : M.planks, 0);
+        }
+        S(2, 1, 0, B.oak_door, rf(0)); S(2, 2, 0, B.oak_door, rf(0) | 8);
+        S(0, 2, 2, B.glass_pane); S(4, 2, 2, B.glass_pane); S(2, 2, 4, B.glass_pane);
+        // tetto a piramide
+        for (let i = 0; i < 5; i++) { stairs(i, 4, 0, 2); stairs(i, 4, 4, 0); }
+        for (let i = 1; i < 4; i++) { stairs(0, 4, i, 1); stairs(4, 4, i, 3); }
+        for (let i = 1; i < 4; i++) { stairs(i, 5, 1, 2); stairs(i, 5, 3, 0); }
+        stairs(1, 5, 2, 1); stairs(3, 5, 2, 3);
+        S(2, 5, 2, M.planks); S(2, 6, 2, M.slab);
+        S(1, 1, 3, B.bed); S(3, 1, 3, B.crafting_table, dirToFace[rf(0)]);
+        S(1, 1, 1, B.lantern);
+        return;
+      }
+      if (b.type === 'bighouse') {
+        Ffill(0, 0, 0, 6, 0, 5, M.floor);
+        for (let y = 1; y <= 4; y++) for (let lz = 0; lz < 6; lz++) for (let lx = 0; lx < 7; lx++) {
+          const edge = lx === 0 || lz === 0 || lx === 6 || lz === 5;
+          if (!edge) continue;
+          const corner = (lx === 0 || lx === 6) && (lz === 0 || lz === 5);
+          S(lx, y, lz, corner ? M.log : M.planks, 0);
+        }
+        S(3, 1, 0, B.oak_door, rf(0)); S(3, 2, 0, B.oak_door, rf(0) | 8);
+        for (const [lx, lz] of [[1, 0], [5, 0], [1, 5], [5, 5], [0, 2], [0, 3], [6, 2], [6, 3]]) S(lx, 2, lz, B.glass_pane);
+        S(3, 3, 5, B.glass_pane);
+        // tetto a capanna lungo X
+        for (let lx = -1; lx <= 7; lx++) { stairs(lx, 5, 0, 2); stairs(lx, 5, 5, 0); stairs(lx, 6, 1, 2); stairs(lx, 6, 4, 0); S(lx, 7, 2, M.slab); S(lx, 7, 3, M.slab); }
+        for (const lx of [0, 6]) { S(lx, 5, 1, M.planks); S(lx, 5, 2, M.planks); S(lx, 5, 3, M.planks); S(lx, 5, 4, M.planks); S(lx, 6, 2, M.planks); S(lx, 6, 3, M.planks); }
+        S(1, 1, 4, B.chest, dirToFace[rf(2)] | 8); S(2, 1, 4, B.bookshelf); S(5, 1, 4, B.bed); S(5, 1, 1, B.crafting_table, dirToFace[rf(1)]);
+        S(1, 1, 1, B.lantern); S(3, 4, 3, B.lantern);
+        return;
+      }
+      if (b.type === 'smith') {
+        Ffill(0, 0, 0, 6, 0, 6, M.floor);
+        for (let y = 1; y <= 3; y++) for (let lz = 0; lz < 7; lz++) for (let lx = 0; lx < 7; lx++) {
+          if (lz === 0) { if ((lx === 0 || lx === 6) ) S(lx, y, lz, M.log); continue; }
+          if (lx === 0 || lx === 6 || lz === 6) S(lx, y, lz, B.cobblestone);
+        }
+        for (let lz = 0; lz < 7; lz++) for (let lx = 0; lx < 7; lx++) S(lx, 4, lz, B.cobblestone_slab);
+        S(1, 1, 5, B.furnace, dirToFace[rf(0)]); S(2, 1, 5, B.furnace, dirToFace[rf(0)]);
+        S(5, 1, 5, B.chest, dirToFace[rf(0)] | 8);
+        S(5, 1, 3, B.crafting_table, dirToFace[rf(3)]);
+        S(3, 3, 3, B.lantern);
+        for (let lx = 1; lx < 6; lx++) if (lx !== 3) S(lx, 1, 0, M.fence);
+        void dirToWall;
       }
     }
 

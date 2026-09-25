@@ -95,6 +95,11 @@
     hit(id) { this._mat(id, 'hit'); }
     step(id) { if (id) this._mat(id, 'step'); }
     land(id) { if (id) this._mat(id, 'step'); }
+    eat() { this._noise(0.08, 'bandpass', 1800, 2, 0.18); }
+    burp() { this._tone(160, 0.25, 'sawtooth', 0.08, 90); }
+    bow(v) { v = v === undefined ? 1 : v; this._noise(0.15, 'bandpass', 1400, 1.5, 0.3 * v); this._tone(500, 0.08, 'triangle', 0.08 * v, 250); }
+    door(open) { this._noise(0.25, 'bandpass', open ? 600 : 400, 2, 0.35); this._tone(open ? 140 : 110, 0.15, 'triangle', 0.1); }
+    hiss(v) { this._noise(1.5, 'highpass', 3500, 0.7, 0.3 * (v || 1), 0.1); }
     pop() { this._tone(700 + Math.random() * 400, 0.08, 'sine', 0.15, 1400); }
     click() { this._tone(900, 0.04, 'square', 0.05, 600); }
     hurt() { this._tone(260, 0.18, 'square', 0.12, 140); this._noise(0.1, 'lowpass', 600, 1, 0.2); }
@@ -133,6 +138,11 @@
         case 'sheep': for (let i = 0; i < 5; i++) this._tone((330 + (i % 2) * 20) * r, 0.09, 'sawtooth', 0.05 * vol, null, i * 0.07); break;
         case 'chicken': this._tone(1200 * r, 0.06, 'square', 0.04 * vol, 900 * r); this._tone(1300 * r, 0.06, 'square', 0.04 * vol, 800 * r, 0.1); break;
         case 'zombie': this._tone(110 * r, 0.8, 'sawtooth', 0.08 * vol, 80 * r); this._noise(0.6, 'lowpass', 400, 2, 0.1 * vol); break;
+        case 'skeleton': for (let i = 0; i < 4; i++) this._noise(0.05, 'bandpass', 2500 + i * 300, 6, 0.12 * vol); break;
+        case 'spider': this._noise(0.3, 'bandpass', 900, 3, 0.12 * vol); this._tone(300 * r, 0.2, 'sawtooth', 0.03 * vol, 200); break;
+        case 'creeper': this._noise(0.25, 'lowpass', 800, 1, 0.12 * vol); break;
+        case 'villager': this._tone(220 * r, 0.12, 'sawtooth', 0.06 * vol, 170 * r); this._tone(200 * r, 0.18, 'sawtooth', 0.05 * vol, 240 * r, 0.12); break;
+        case 'iron_golem': this._noise(0.3, 'lowpass', 300, 1, 0.3 * vol); this._tone(70, 0.3, 'sine', 0.2 * vol, 50); break;
       }
     }
   }

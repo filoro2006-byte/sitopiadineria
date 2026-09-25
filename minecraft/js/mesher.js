@@ -83,8 +83,8 @@
     const T = MC.textures.index;
     FACE_LAYER = new Int16Array(256 * 6);
     FRONT_LAYER = new Int16Array(256);
-    for (const d of MC.blocks) {
-      if (!d.tex) continue;
+    for (const d of MC.defs) {
+      if (!d.tex || d.id >= 256) continue;
       const get = (n) => { const l = T[n]; if (l === undefined) { console.warn('texture mancante', n); return 0; } return l; };
       for (let f = 0; f < 6; f++) {
         const n = f === 2 ? d.tex.top : f === 3 ? d.tex.bottom : d.tex.side;
@@ -92,6 +92,8 @@
       }
       FRONT_LAYER[d.id] = d.tex.front ? get(d.tex.front) : FACE_LAYER[d.id * 6];
     }
+    DOOR_TOP = T.door_top;
+    for (let i = 0; i < 8; i++) WHEAT[i] = T['wheat_' + i];
   }
 
   function fill(world, cx, sy, cz) {
@@ -172,6 +174,8 @@
           case 'torch': torch(d, id, p, x, y, z); break;
           case 'liquid': liquid(d, id, p, x, y, z); break;
           case 'cactus': cactus(d, id, p, x, y, z); break;
+          case 'model': model(d, id, p, x, y, z, ci, grass, foliage); break;
+          case 'crop': crop(d, id, p, x, y, z); break;
         }
       }
     }
@@ -378,6 +382,72 @@
       }
     }
   }
+
+  // blocchi con modello: scatole con UV prese dalla posizione
+  const pget = (lx, ly, lz) => pb[pidx(lx, ly, lz)];
+  function connAt(id, x, y, z) {
+    return MC.connMask((ax, ay, az) => (ax < -1 || ax > 16 || az < -1 || az > 16 || ay < -1 || ay > 16 ? 0 : pget(ax, ay, az)), x, y, z, id);
+  }
+  function model(d, id, p, x, y, z, ci, grass, foliage) {
+    const meta = pm[p];
+    const boxes = d.model(meta, d.conn ? connAt(id, x, y, z) : 0);
+    const bld = d.cutout || d.pass === 'translucent' ? solidB : solidB;
+    const ownSky = pl[p] >> 4, ownBlk = pl[p] & 15;
+    tint[3] = 0;
+    for (const b of boxes) {
+      for (let f = 0; f < 6; f++) {
+        const n = FN[f];
+        const onEdge = (f === 0 && b[3] >= 1) || (f === 1 && b[0] <= 0) || (f === 2 && b[4] >= 1) || (f === 3 && b[1] <= 0) || (f === 4 && b[5] >= 1) || (f === 5 && b[2] <= 0);
+        const np = p + (n[1] * P + n[2]) * P + n[0];
+        if (onEdge && OPAQUE[pb[np]]) continue;
+        if (onEdge && pb[np] === id && d.conn === 'pane') continue;
+        let layer = FACE_LAYER[id * 6 + f];
+        if (d.facing && f === (meta & 7) && f !== 2 && f !== 3) layer = FRONT_LAYER[id];
+        if (d.door && (meta & 8)) layer = DOOR_TOP;
+        let sk, bl;
+        if (onEdge) { sk = Math.max(pl[np] >> 4, ownSky); bl = Math.max(pl[np] & 15, ownBlk); }
+        else { sk = Math.max(ownSky, pl[np] >> 4); bl = Math.max(ownBlk, pl[np] & 15); }
+        if (d.lightOpacity >= 15) { sk = pl[np] >> 4; bl = pl[np] & 15; }
+        const skv = Math.round(sk * 17), blv = Math.round(bl * 17);
+        const shade = Math.round(255 * FACE_SHADE[f] * (onEdge ? 1 : 0.92));
+        const corners = FC[f];
+        bld.ensure(4);
+        for (let k = 0; k < 4; k++) {
+          const cr = corners[k];
+          const px = cr[0] ? b[3] : b[0], py = cr[1] ? b[4] : b[1], pz = cr[2] ? b[5] : b[2];
+          let u, v;
+          if (f === 0 || f === 1) { u = f === 0 ? 1 - pz : pz; v = py; }
+          else if (f === 2 || f === 3) { u = px; v = f === 2 ? 1 - pz : pz; }
+          else { u = f === 4 ? px : 1 - px; v = py; }
+          bld.v(x + px, y + py, z + pz, layer, u, v, d.emissive ? 8 : 0, shade, skv, blv, 255, 255, 255, 0, f);
+        }
+      }
+    }
+  }
+  function crop(d, id, p, x, y, z) {
+    const st = pm[p] & 7;
+    const layer = WHEAT[st];
+    const sk = Math.round((pl[p] >> 4) * 17), bl = Math.round((pl[p] & 15) * 17);
+    solidB.ensure(32);
+    const shade = 230;
+    // quattro piani a cancelletto
+    for (const off of [0.25, 0.75]) {
+      for (const axis of [0, 1]) {
+        const P0 = axis ? [x + off, z] : [x, z + off], P1 = axis ? [x + off, z + 1] : [x + 1, z + off];
+        const X0 = P0[0], Z0 = P0[1], X1 = P1[0], Z1 = P1[1];
+        solidB.v(X0, y, Z0, layer, 0, 0, 0, shade, sk, bl, 255, 255, 255, 0, 6);
+        solidB.v(X1, y, Z1, layer, 1, 0, 0, shade, sk, bl, 255, 255, 255, 0, 6);
+        solidB.v(X1, y + 1, Z1, layer, 1, 1, 1, shade, sk, bl, 255, 255, 255, 0, 6);
+        solidB.v(X0, y + 1, Z0, layer, 0, 1, 1, shade, sk, bl, 255, 255, 255, 0, 6);
+        solidB.v(X1, y, Z1, layer, 1, 0, 0, shade, sk, bl, 255, 255, 255, 0, 6);
+        solidB.v(X0, y, Z0, layer, 0, 0, 0, shade, sk, bl, 255, 255, 255, 0, 6);
+        solidB.v(X0, y + 1, Z0, layer, 0, 1, 1, shade, sk, bl, 255, 255, 255, 0, 6);
+        solidB.v(X1, y + 1, Z1, layer, 1, 1, 1, shade, sk, bl, 255, 255, 255, 0, 6);
+      }
+    }
+  }
+  let DOOR_TOP = 0;
+  const WHEAT = [];
 
   MC.mesher = { meshSection, STRIDE, POS };
 })();

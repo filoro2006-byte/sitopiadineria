@@ -449,6 +449,7 @@ void main(){
 precision highp float;
 precision highp sampler2DArray;
 uniform sampler2DArray u_tex;
+uniform sampler2DArray u_mob;
 uniform vec3 u_fogCol;
 uniform vec2 u_fog;
 uniform int u_useTex;
@@ -457,7 +458,7 @@ in vec4 v_col;
 in float v_dist;
 out vec4 o;
 void main(){
-  vec4 t = u_useTex == 1 ? texture(u_tex, v_uvl) : vec4(1.0);
+  vec4 t = u_useTex == 1 ? (v_uvl.z >= 999.5 ? texture(u_mob, vec3(v_uvl.xy, v_uvl.z - 1000.0)) : texture(u_tex, v_uvl)) : vec4(1.0);
   if (t.a < 0.1) discard;
   vec4 c = t * v_col;
   float fog = smoothstep(u_fog.x, u_fog.y, v_dist);
@@ -669,6 +670,7 @@ void main(){ o = u_col; }`;
       this.cloud = { vao: null, buf: null, count: 0, ox: 1e9, oz: 1e9 };
       this.buildCloudMap();
       this.initTextures();
+      this.initMobTextures();
       this.meshCount = 0;
     }
 
@@ -697,6 +699,20 @@ void main(){ o = u_col; }`;
       gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.REPEAT);
       gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAX_LEVEL, levels - 1);
       // niente filtro anisotropico: forzerebbe il filtraggio lineare e sfocerebbe la pixel-art
+    }
+
+    initMobTextures() {
+      const gl = this.gl;
+      MC.mobs.build();
+      const L = MC.mobs.skins, S = MC.mobs.SZ;
+      this.mobTex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.mobTex);
+      gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA8, S, S, L.length);
+      for (let i = 0; i < L.length; i++) gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, i, S, S, 1, gl.RGBA, gl.UNSIGNED_BYTE, L[i]);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     }
 
     buildCloudMap() {
@@ -1289,6 +1305,10 @@ void main(){ o = u_col; }`;
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.tex);
       gl.uniform1i(pr.u.u_tex, 0);
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.mobTex);
+      gl.uniform1i(pr.u.u_mob, 2);
+      gl.activeTexture(gl.TEXTURE0);
     }
 
     drawSelection(box, cam) {

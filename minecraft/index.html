@@ -16,10 +16,11 @@
     <div id="debug" class="hidden"></div>
     <div id="chat-log"></div>
     <div id="item-name"></div>
+    <div id="eat-bar" class="eat-bar hidden"><i></i></div>
     <div id="bottom">
       <div id="bars">
         <div id="hearts"></div>
-        <div id="bubbles"></div>
+        <div class="bars-right"><div id="bubbles"></div><div id="hunger"></div></div>
       </div>
       <div id="hotbar"></div>
     </div>
@@ -157,7 +158,7 @@
       <div><b>ESC</b> pausa</div>
       <div><b>Mac</b>: clic con due dita = clic destro</div>
     </div>
-    <div class="cmd-help">Comandi: <code>/time set day|night|noon|&lt;n&gt;</code> · <code>/gamemode creative|survival</code> · <code>/tp x y z</code> · <code>/seed</code> · <code>/weather clear|rain</code> · <code>/give &lt;blocco&gt; [n]</code> · <code>/spawn &lt;pig|cow|sheep|chicken|zombie&gt;</code> · <code>/kill</code></div>
+    <div class="cmd-help">Comandi: <code>/time set day|night|noon|&lt;n&gt;</code> · <code>/gamemode creative|survival</code> · <code>/tp x y z</code> · <code>/seed</code> · <code>/weather clear|rain</code> · <code>/give &lt;blocco&gt; [n]</code> · <code>/spawn &lt;pig|cow|sheep|chicken|zombie|skeleton|creeper|spider|villager|iron_golem&gt;</code> · <code>/locate</code> (villaggio più vicino) · <code>/kill</code></div>
     <div class="menu-col"><button class="btn" id="btn-controls-back">Fatto</button></div>
   </div>
 
@@ -181,6 +182,10 @@
         </div>
         <div id="inv-grid" class="grid scroll"></div>
       </div>
+      <div id="inv-chest" class="hidden">
+        <div class="inv-label" id="chest-label">Baule</div>
+        <div id="chest-grid" class="grid g9"></div>
+      </div>
       <div id="inv-survival">
         <div class="inv-cols">
           <div>
@@ -199,6 +204,15 @@
     </div>
     <div id="cursor-item"></div>
     <div id="tooltip" class="hidden"></div>
+  </div>
+
+  <!-- Scambi con i villici -->
+  <div id="screen-trade" class="screen dim hidden">
+    <div class="panel">
+      <div class="inv-label" id="trade-title">Scambi</div>
+      <div id="trade-list" class="trade-list"></div>
+      <div class="inv-hint">Clicca su uno scambio per farlo (servono gli oggetti a sinistra nel tuo inventario). E o ESC per chiudere.</div>
+    </div>
   </div>
 
   <!-- Chat -->
@@ -220,7 +234,9 @@
   <script src="js/mesher.js"></script>
   <script src="js/renderer.js"></script>
   <script src="js/player.js"></script>
+  <script src="js/mobs.js"></script>
   <script src="js/entities.js"></script>
+  <script src="js/creatures.js"></script>
   <script src="js/audio.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/inventory.js"></script>

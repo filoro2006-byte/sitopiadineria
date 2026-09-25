@@ -485,8 +485,9 @@
     breakBlock(x, y, z, drop) {
       const id = this.getBlock(x, y, z);
       if (!id) return;
+      const meta = this.getMeta(x, y, z);
       this.setBlock(x, y, z, 0, 0);
-      if (drop && this.onDrop) this.onDrop(id, x, y, z);
+      if (drop && this.onDrop) this.onDrop(id, x, y, z, meta);
     }
 
     // ---------------- Aggiornamenti programmati ----------------
@@ -500,7 +501,7 @@
 
     _needsUpdate(id) {
       const d = MC.blocks[id];
-      return d && (d.fluid || d.gravity || d.support || d.shape === 'torch' || d.shape === 'cactus');
+      return d && (d.fluid || d.gravity || d.support || d.shape === 'torch' || d.shape === 'cactus' || d.door || d.ladder);
     }
 
     _delayFor(id) {
@@ -559,6 +560,19 @@
         if (!OPAQUE[s]) this.breakBlock(x, y, z, true);
         return;
       }
+      if (d.door) {
+        const m = this.getMeta(x, y, z);
+        const oy = m & 8 ? y - 1 : y + 1;
+        if (this.getBlock(x, oy, z) !== id) { this.setBlock(x, y, z, 0, 0); if (!(m & 8) && this.onDrop) this.onDrop(id, x, y, z); return; }
+        if (!(m & 8) && !SOLID[this.getBlock(x, y - 1, z)]) { this.breakBlock(x, y, z, true); }
+        return;
+      }
+      if (d.ladder) {
+        const m = this.getMeta(x, y, z);
+        const sx = m === 1 ? x - 1 : m === 2 ? x + 1 : x, sz = m === 3 ? z - 1 : m === 4 ? z + 1 : z;
+        if (!OPAQUE[this.getBlock(sx, y, sz)]) this.breakBlock(x, y, z, true);
+        return;
+      }
       if (d.shape === 'cactus') {
         for (let k = 0; k < 4; k++) {
           const b = this.getBlock(x + DX[k], y, z + DZ[k]);
@@ -574,7 +588,7 @@
     _canFlowInto(b) {
       if (b === 0) return true;
       const d = MC.blocks[b];
-      return d.shape === 'cross' || d.shape === 'torch';
+      return d.shape === 'cross' || d.shape === 'torch' || d.shape === 'crop';
     }
 
     _fluidUpdate(x, y, z, id) {
@@ -673,6 +687,16 @@
             const lx = (rng() * 16) | 0, ly = s * 16 + ((rng() * 16) | 0), lz = (rng() * 16) | 0;
             const i = (ly << 8) | (lz << 4) | lx;
             const b = c.blocks[i];
+            if (b === B.wheat || b === B.oak_sapling || b === B.birch_sapling || b === B.spruce_sapling || b === B.jungle_sapling || b === B.acacia_sapling) {
+              const x = c.cx * 16 + lx, z = c.cz * 16 + lz;
+              const lv = ly + 1 < WH ? Math.max(c.light[i] >> 4, c.light[i] & 15) : 15;
+              if (lv < 9) continue;
+              if (b === B.wheat) {
+                const m = c.getMeta(i);
+                if (m < 7 && rng() < 0.35) this.setBlock(x, ly, z, b, m + 1);
+              } else if (rng() < 0.12) this.growTree(x, ly, z, b);
+              continue;
+            }
             if (b !== B.grass && b !== B.dirt && b !== B.sugar_cane && b !== B.cactus) continue;
             const x = c.cx * 16 + lx, z = c.cz * 16 + lz;
             const above = ly + 1 < WH ? c.blocks[i + 256] : 0;
@@ -702,6 +726,28 @@
           }
         }
       }
+    }
+
+    // fa crescere un arbusto in albero (se c'è spazio)
+    growTree(x, y, z, sap) {
+      for (let k = 1; k <= 6; k++) { const b = this.getBlock(x, y + k, z); if (b && !REPLACEABLE[b] && !MC.blocks[b].key.endsWith('_leaves')) return false; }
+      if (y + 16 >= WH) return false;
+      const rng = MC.util.mulberry32((x * 31 + z * 17 + y * 7 + this.tickCount) >>> 0);
+      const put = (px, py, pz, id, mode) => {
+        if (py < 1 || py >= WH) return;
+        const cur = this.getBlock(px, py, pz);
+        if (mode === 1) { if (cur === 0 || REPLACEABLE[cur] && !FLUID[cur] || MC.blocks[cur].key.endsWith('_leaves') || cur === sap) this.setBlock(px, py, pz, id, 0); }
+        else if (mode === 2) { if (cur === 0 || (REPLACEABLE[cur] && !FLUID[cur])) this.setBlock(px, py, pz, id, 0); }
+        else if (mode === 3) { if (cur === B.grass) this.setBlock(px, py, pz, B.dirt, 0); }
+      };
+      this.setBlock(x, y, z, 0, 0, { noUpdate: true });
+      const g = this.gen, by = y - 1;
+      if (sap === B.oak_sapling) { if (rng() < 0.1) g.bigOak(x, by, z, rng, put); else g.oak(x, by, z, rng, put, B.oak_log, B.oak_leaves, 4 + Math.floor(rng() * 3)); }
+      else if (sap === B.birch_sapling) g.oak(x, by, z, rng, put, B.birch_log, B.birch_leaves, 5 + Math.floor(rng() * 3));
+      else if (sap === B.spruce_sapling) g.spruce(x, by, z, rng, put);
+      else if (sap === B.jungle_sapling) g.jungle(x, by, z, rng, put);
+      else g.acacia(x, by, z, rng, put);
+      return true;
     }
 
     // Altezza del primo blocco solido (per spawn)

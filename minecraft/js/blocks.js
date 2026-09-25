@@ -42,6 +42,7 @@
       interact: p.interact || null,
       blast: p.blast !== undefined ? p.blast : 1,
     };
+    for (const k in p) if (!(k in d)) d[k] = p[k];
     if (d.drop === undefined) d.drop = d.id;
     blocks[d.id] = d;
     byKey[key] = d.id;
@@ -185,10 +186,152 @@
   add('allium', 'Allium', plant('allium'));
   add('pink_tulip', 'Tulipano rosa', plant('pink_tulip'));
 
-  // Risoluzione dei drop in forma di chiave
-  for (const d of blocks) {
-    if (typeof d.drop === 'string') d.drop = byKey[d.drop];
+
+  // ---------------- Blocchi con modello (non cubici) ----------------
+  const H = 1 / 16;
+  const mdl = (fn, p) => Object.assign({ shape: 'model', model: fn, opaque: false, lightOpacity: 0 }, p);
+  add('farmland', 'Terreno arato', mdl(() => [[0, 0, 0, 1, 15 * H, 1]], { tex: { top: 'farmland', side: 'dirt', bottom: 'dirt' }, hardness: 0.6, sound: 'gravel', drop: 'dirt', cat: 'nature', solid: true, lightOpacity: 15 }));
+  add('dirt_path', 'Sentiero', mdl(() => [[0, 0, 0, 1, 15 * H, 1]], { tex: { top: 'path_top', side: 'path_side', bottom: 'dirt' }, hardness: 0.65, sound: 'gravel', drop: 'dirt', cat: 'nature', solid: true, lightOpacity: 15 }));
+  add('wheat', 'Grano', { shape: 'crop', opaque: false, solid: false, lightOpacity: 0, tex: t('wheat_7'), hardness: 0, sound: 'grass', wave: 1, support: (b) => b === MC.B.farmland, creative: false, cat: 'nature', drop: 0 });
+  const WOODS = ['oak', 'birch', 'spruce', 'jungle', 'acacia'];
+  const WOOD_IT = { oak: 'quercia', birch: 'betulla', spruce: 'abete', jungle: 'giungla', acacia: 'acacia' };
+  for (const w of WOODS) add(w + '_sapling', 'Arbusto di ' + WOOD_IT[w], plant(w + '_sapling', '', { wave: 0 }));
+
+  const SLAB_MATS = [['oak_planks', 'di quercia', 'wood'], ['spruce_planks', 'di abete', 'wood'], ['birch_planks', 'di betulla', 'wood'], ['cobblestone', 'di pietrisco', 'stone'], ['stone', 'di pietra', 'stone'], ['stone_bricks', 'di mattoni di pietra', 'stone'], ['bricks', 'di mattoni', 'stone'], ['sandstone', 'di arenaria', 'stone']];
+  const slabModel = (m) => (m & 1 ? [[0, 0.5, 0, 1, 1, 1]] : [[0, 0, 0, 1, 0.5, 1]]);
+  // gradini: meta&3 = lato del gradino alto (0 -Z, 1 +X, 2 +Z, 3 -X), meta&4 = capovolto
+  const stairModel = (m) => {
+    const up = m & 4;
+    const base = up ? [0, 0.5, 0, 1, 1, 1] : [0, 0, 0, 1, 0.5, 1];
+    const y0 = up ? 0 : 0.5, y1 = up ? 0.5 : 1;
+    const f = m & 3;
+    const step = f === 0 ? [0, y0, 0, 1, y1, 0.5] : f === 1 ? [0.5, y0, 0, 1, y1, 1] : f === 2 ? [0, y0, 0.5, 1, y1, 1] : [0, y0, 0, 0.5, y1, 1];
+    return [base, step];
+  };
+  for (const [m, n, snd] of SLAB_MATS) {
+    const base = m.replace('_planks', '');
+    add(base + '_slab', 'Lastra ' + n, mdl(slabModel, { texFrom: m, hardness: 2, sound: snd, cat: 'build', solid: true, slab: m, blast: snd === 'stone' ? 6 : 1 }));
+    add(base + '_stairs', 'Scalini ' + n, mdl(stairModel, { texFrom: m, hardness: 2, sound: snd, cat: 'build', solid: true, stairs: true, blast: snd === 'stone' ? 6 : 1 }));
   }
+  // staccionate, muri e vetri sottili (si collegano ai vicini: bit 1 +X, 2 -X, 4 +Z, 8 -Z)
+  const connModel = (post, arm, rails) => (m, c) => {
+    const b = [[0.5 - post, 0, 0.5 - post, 0.5 + post, 1, 0.5 + post]];
+    for (const [y0, y1] of rails) {
+      if (c & 1) b.push([0.5 + post, y0, 0.5 - arm, 1, y1, 0.5 + arm]);
+      if (c & 2) b.push([0, y0, 0.5 - arm, 0.5 - post, y1, 0.5 + arm]);
+      if (c & 4) b.push([0.5 - arm, y0, 0.5 + post, 0.5 + arm, y1, 1]);
+      if (c & 8) b.push([0.5 - arm, y0, 0, 0.5 + arm, y1, 0.5 - post]);
+    }
+    return b;
+  };
+  add('oak_fence', 'Staccionata di quercia', mdl(connModel(2 * H, H, [[6 * H, 9 * H], [12 * H, 15 * H]]), { texFrom: 'oak_planks', hardness: 2, sound: 'wood', cat: 'deco', solid: true, conn: 'fence', tall: true }));
+  add('spruce_fence', 'Staccionata di abete', mdl(connModel(2 * H, H, [[6 * H, 9 * H], [12 * H, 15 * H]]), { texFrom: 'spruce_planks', hardness: 2, sound: 'wood', cat: 'deco', solid: true, conn: 'fence', tall: true }));
+  add('cobblestone_wall', 'Muretto di pietrisco', mdl(connModel(4 * H, 3 * H, [[0, 14 * H]]), { texFrom: 'cobblestone', hardness: 2, sound: 'stone', cat: 'build', solid: true, conn: 'wall', tall: true, blast: 6 }));
+  add('glass_pane', 'Lastra di vetro', mdl(connModel(H, H, [[0, 1]]), { tex: t('glass'), hardness: 0.3, sound: 'glass', cat: 'build', solid: true, conn: 'pane', drop: 0 }));
+  // porta: meta&3 lato del pannello chiuso, 4 aperta, 8 metà superiore
+  const doorModel = (m) => {
+    let f = m & 3;
+    if (m & 4) f = (f + 1) & 3;
+    const T3 = 3 * H;
+    return [f === 0 ? [0, 0, 0, 1, 1, T3] : f === 1 ? [1 - T3, 0, 0, 1, 1, 1] : f === 2 ? [0, 0, 1 - T3, 1, 1, 1] : [0, 0, 0, T3, 1, 1]];
+  };
+  add('oak_door', 'Porta di quercia', mdl(doorModel, { tex: t('door_bottom'), hardness: 3, sound: 'wood', cat: 'deco', solid: true, door: true, interact: 'door' }));
+  // scala a pioli: meta 1..4 come le torce (muro a -X, +X, -Z, +Z)
+  const ladderModel = (m) => {
+    const T = H;
+    return [m === 1 ? [0, 0, 0, T, 1, 1] : m === 2 ? [1 - T, 0, 0, 1, 1, 1] : m === 3 ? [0, 0, 0, 1, 1, T] : [0, 0, 1 - T, 1, 1, 1]];
+  };
+  add('ladder', 'Scala a pioli', mdl(ladderModel, { tex: t('ladder'), hardness: 0.4, sound: 'wood', cat: 'deco', solid: false, ladder: true, cutout: true }));
+  add('chest', 'Baule', mdl(() => [[H, 0, H, 1 - H, 14 * H, 1 - H]], { tex: { top: 'chest_top', side: 'chest_side', bottom: 'chest_top', front: 'chest_front' }, facing: true, hardness: 2.5, sound: 'wood', cat: 'deco', solid: true, interact: 'chest' }));
+  add('lantern', 'Lanterna', mdl(() => [[5 * H, 0, 5 * H, 11 * H, 7 * H, 11 * H], [6 * H, 7 * H, 6 * H, 10 * H, 9 * H, 10 * H]], { tex: t('lantern'), hardness: 1, sound: 'metal', cat: 'deco', solid: true, emit: 15, emissive: true }));
+  add('hay_bale_slab', 'Lastra di fieno', mdl(slabModel, { texFrom: 'hay_block', hardness: 0.5, sound: 'grass', cat: 'deco', solid: true, creative: false }));
+  add('bed', 'Letto', mdl(() => [[0, 3 * H, 0, 1, 9 * H, 1], [0, 0, 0, 3 * H, 3 * H, 3 * H], [1 - 3 * H, 0, 0, 1, 3 * H, 3 * H], [0, 0, 1 - 3 * H, 3 * H, 3 * H, 1], [1 - 3 * H, 0, 1 - 3 * H, 1, 3 * H, 1]], { tex: { top: 'bed_top', side: 'bed_side', bottom: 'oak_planks' }, hardness: 0.2, sound: 'wool', cat: 'deco', solid: true, interact: 'bed' }));
+
+  // ---------------- Oggetti (non si piazzano: ID da 256) ----------------
+  nextId = 256;
+  const item = (key, name, p) => add(key, name, Object.assign({ shape: 'item', item: true, opaque: false, solid: false, lightOpacity: 0, tex: t(key), cat: 'items', hardness: 0, selectable: false }, p || {}));
+  item('stick', 'Bastone');
+  item('coal', 'Carbone');
+  item('iron_ingot', 'Lingotto di ferro');
+  item('gold_ingot', 'Lingotto d\'oro');
+  item('copper_ingot', 'Lingotto di rame');
+  item('diamond', 'Diamante');
+  item('emerald', 'Smeraldo');
+  item('lapis', 'Lapislazzuli');
+  item('redstone', 'Polvere di pietrarossa');
+  item('string', 'Filo');
+  item('bone', 'Osso');
+  item('gunpowder', 'Polvere da sparo');
+  item('feather', 'Piuma');
+  item('leather', 'Pelle');
+  item('flint', 'Selce');
+  item('wheat_item', 'Frumento', { tex: t('wheat_item') });
+  item('wheat_seeds', 'Semi di grano', { seeds: true });
+  item('arrow', 'Freccia', { cat: 'tools' });
+  item('bow', 'Arco', { cat: 'tools', stack: 1, bow: true, durability: 384 });
+  item('flint_and_steel', 'Acciarino', { cat: 'tools', stack: 1, igniter: true, durability: 64 });
+  const FOOD = [
+    ['apple', 'Mela', 4, 2.4], ['bread', 'Pane', 5, 6], ['porkchop', 'Braciola cruda', 3, 1.8], ['cooked_porkchop', 'Braciola cotta', 8, 12.8],
+    ['beef', 'Manzo crudo', 3, 1.8], ['steak', 'Bistecca', 8, 12.8], ['chicken', 'Pollo crudo', 2, 1.2], ['cooked_chicken', 'Pollo cotto', 6, 7.2],
+    ['mutton', 'Montone crudo', 2, 1.2], ['cooked_mutton', 'Montone cotto', 6, 9.6], ['rotten_flesh', 'Carne marcia', 4, 0.8], ['carrot', 'Carota', 3, 3.6],
+    ['golden_apple', 'Mela d\'oro', 4, 9.6],
+  ];
+  for (const [k, n, h, sat] of FOOD) item(k, n, { cat: 'food', food: { hunger: h, sat } });
+  const TIERS = [['wooden', 'di legno', 1, 2, 59, 0], ['stone', 'di pietra', 2, 4, 131, 1], ['iron', 'di ferro', 3, 6, 250, 2], ['golden', 'd\'oro', 1, 12, 32, 0], ['diamond', 'di diamante', 4, 8, 1561, 3]];
+  const TOOLS = [['pickaxe', 'Piccone', 2], ['axe', 'Ascia', 3], ['shovel', 'Pala', 1], ['sword', 'Spada', 4], ['hoe', 'Zappa', 0]];
+  for (const [tt, tn, tier, speed, dur, level] of TIERS) {
+    for (const [tool, name, dmg] of TOOLS) {
+      item(tt + '_' + tool, name + ' ' + tn, { cat: 'tools', stack: 1, tool: { type: tool, speed, level, damage: dmg + tier }, durability: dur });
+    }
+  }
+  const EGGS = [['pig', 'maiale', [240, 160, 160], [220, 110, 120]], ['cow', 'mucca', [68, 54, 38], [161, 161, 161]], ['sheep', 'pecora', [231, 231, 231], [255, 181, 181]],
+    ['chicken', 'gallina', [161, 161, 161], [255, 0, 0]], ['zombie', 'zombie', [0, 175, 175], [121, 156, 101]], ['skeleton', 'scheletro', [193, 193, 193], [73, 73, 73]],
+    ['creeper', 'creeper', [13, 161, 12], [0, 0, 0]], ['spider', 'ragno', [52, 45, 39], [165, 14, 14]], ['villager', 'villico', [86, 60, 52], [189, 138, 114]],
+    ['iron_golem', 'golem di ferro', [220, 216, 206], [130, 120, 110]]];
+  MC.EGG_COLORS = EGGS;
+  for (const [m, n] of EGGS) item(m + '_spawn_egg', 'Uovo generatore di ' + n, { cat: 'eggs', egg: m, tex: t('egg_' + m) });
+
+  // Risoluzione dei drop in forma di chiave
+  const defs = blocks.filter(Boolean);
+  for (const d of defs) {
+    if (typeof d.drop === 'string') d.drop = byKey[d.drop];
+    if (d.texFrom) d.tex = blocks[byKey[d.texFrom]].tex;
+    if (d.stack === undefined) d.stack = 64;
+  }
+  // attrezzi adatti e livello di raccolta
+  const LEVEL = { iron_ore: 1, copper_ore: 1, lapis_ore: 1, lapis_block: 1, iron_block: 1, copper_block: 1, gold_ore: 2, gold_block: 2, diamond_ore: 2, diamond_block: 2, emerald_ore: 2, emerald_block: 2, redstone_ore: 2, redstone_block: 2, obsidian: 3 };
+  const SHOVEL = ['dirt', 'grass', 'sand', 'red_sand', 'gravel', 'clay', 'snow', 'snowy_grass', 'podzol', 'coarse_dirt', 'farmland', 'dirt_path', 'moss_block'];
+  for (const d of defs) {
+    if (d.item || d.hardness <= 0) continue;
+    if (SHOVEL.includes(d.key)) d.tool = 'shovel';
+    else if (d.sound === 'wood') d.tool = 'axe';
+    else if ((d.sound === 'stone' || d.sound === 'metal') && d.key !== 'bedrock') { d.tool = 'pickaxe'; d.needsTool = true; }
+    else if (d.key.endsWith('_leaves')) d.tool = 'hoe';
+    d.level = LEVEL[d.key] || 0;
+  }
+  const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+  const dropFn = (k, fn) => { blocks[byKey[k]].dropFn = fn; };
+  dropFn('coal_ore', () => [[byKey.coal, 1]]);
+  dropFn('diamond_ore', () => [[byKey.diamond, 1]]);
+  dropFn('emerald_ore', () => [[byKey.emerald, 1]]);
+  dropFn('lapis_ore', () => [[byKey.lapis, rnd(4, 8)]]);
+  dropFn('redstone_ore', () => [[byKey.redstone, rnd(4, 5)]]);
+  dropFn('gravel', () => [[Math.random() < 0.1 ? byKey.flint : byKey.gravel, 1]]);
+  dropFn('tall_grass', () => (Math.random() < 0.125 ? [[byKey.wheat_seeds, 1]] : []));
+  dropFn('fern', () => (Math.random() < 0.125 ? [[byKey.wheat_seeds, 1]] : []));
+  for (const w of WOODS) {
+    dropFn(w + '_leaves', () => {
+      const out = [];
+      if (Math.random() < 0.05) out.push([byKey[w + '_sapling'], 1]);
+      if (w === 'oak' && Math.random() < 0.02) out.push([byKey.apple, 1]);
+      if (Math.random() < 0.02) out.push([byKey.stick, 1]);
+      return out;
+    });
+  }
+  dropFn('wheat', (meta) => (meta >= 7 ? [[byKey.wheat_item, 1], [byKey.wheat_seeds, rnd(1, 3)]] : [[byKey.wheat_seeds, 1]]));
+  dropFn('oak_door', () => [[byKey.oak_door, 1]]);
+  dropFn('bed', () => [[byKey.bed, 1]]);
+  MC.defs = defs;
 
   // Array di lookup veloci per il mesher e la luce
   const N = 256;
@@ -198,7 +341,8 @@
   const EMIT = new Uint8Array(N);
   const FLUID = new Uint8Array(N);
   const REPLACEABLE = new Uint8Array(N);
-  for (const d of blocks) {
+  for (const d of defs) {
+    if (d.id >= N) continue;
     OPAQUE[d.id] = d.opaque && d.shape === 'cube' ? 1 : 0;
     SOLID[d.id] = d.solid ? 1 : 0;
     LIGHT_OPACITY[d.id] = d.lightOpacity;
@@ -209,9 +353,36 @@
 
   MC.blocks = blocks;
   MC.B = byKey;
-  MC.BL = { OPAQUE, SOLID, LIGHT_OPACITY, EMIT, FLUID, REPLACEABLE, count: blocks.length };
+  MC.BL = { OPAQUE, SOLID, LIGHT_OPACITY, EMIT, FLUID, REPLACEABLE, count: defs.length };
 
   // Box di collisione e selezione (coordinate locali 0..1)
+  // maschera di collegamento per staccionate/muri/vetri
+  MC.connMask = function (get, x, y, z, id) {
+    const d = blocks[id];
+    let m = 0;
+    const ok = (b) => {
+      if (!b) return false;
+      const e = blocks[b];
+      if (!e) return false;
+      if (e.conn && (e.conn === d.conn || (d.conn !== 'pane' && e.conn !== 'pane'))) return true;
+      if (e.door && d.conn !== 'pane') return false;
+      return OPAQUE[b] === 1;
+    };
+    if (ok(get(x + 1, y, z))) m |= 1;
+    if (ok(get(x - 1, y, z))) m |= 2;
+    if (ok(get(x, y, z + 1))) m |= 4;
+    if (ok(get(x, y, z - 1))) m |= 8;
+    return m;
+  };
+
+  MC.getSelectionBoxes = function (id, meta, conn) {
+    const d = blocks[id];
+    if (!d || !d.selectable) return null;
+    if (d.shape === 'model') return d.model(meta, conn || 0);
+    if (d.shape === 'crop') return [[0, 0, 0, 1, 0.25 + (meta & 7) * 0.09, 1]];
+    const b = MC.getSelectionBox(id, meta);
+    return b ? [b] : null;
+  };
   MC.getSelectionBox = function (id, meta) {
     const d = blocks[id];
     if (!d || !d.selectable) return null;
@@ -226,12 +397,31 @@
       return [0.4, 0, 0.4, 0.6, 0.62, 0.6];
     }
     if (d.shape === 'cactus') return [0.0625, 0, 0.0625, 0.9375, 1, 0.9375];
+    if (d.shape === 'model') {
+      const bs = d.model(meta, 0);
+      const u = [1, 1, 1, 0, 0, 0];
+      for (const b of bs) for (let i = 0; i < 3; i++) { u[i] = Math.min(u[i], b[i]); u[i + 3] = Math.max(u[i + 3], b[i + 3]); }
+      return u;
+    }
     return [0, 0, 0, 1, 1, 1];
   };
   MC.getCollisionBox = function (id) {
     const d = blocks[id];
     if (!d || !d.solid) return null;
     if (d.shape === 'cactus') return [0.0625, 0, 0.0625, 0.9375, 0.9375, 0.9375];
+    if (d.shape === 'model') return d.model(0, 0)[0];
     return [0, 0, 0, 1, 1, 1];
+  };
+  // tutte le scatole di collisione di un blocco
+  MC.getCollisionBoxes = function (id, meta, conn) {
+    const d = blocks[id];
+    if (!d || !d.solid) return null;
+    if (d.shape === 'model') {
+      const bs = d.model(meta, conn || 0);
+      if (d.tall) return bs.map((b) => [b[0], b[1], b[2], b[3], Math.max(b[4], 1.5), b[5]]);
+      return bs;
+    }
+    const b = MC.getCollisionBox(id);
+    return b ? [b] : null;
   };
 })();

@@ -878,6 +878,244 @@
       p.set(7, 7, [255, 200, 60]); p.set(8, 7, [250, 160, 30]);
     });
 
+    // ---------------- Nuovi blocchi ----------------
+    tex('farmland', (p) => {
+      p.each((x, y) => {
+        let f = 0.8 + p.r() * 0.15;
+        if (y % 4 === 0) f *= 0.72;
+        p.set(x, y, sh([110, 76, 48], f));
+      });
+    });
+    tex('path_top', (p) => noiseTex(p, [[150, 122, 66], [160, 131, 72], [170, 140, 80], [140, 115, 62], [180, 150, 88]], { w: [0.3, 0.3, 0.4] }));
+    tex('path_side', (p) => {
+      p.copy(cache.dirt);
+      for (let x = 0; x < S; x++) { const d = 1 + (p.r() < 0.4 ? 1 : 0); for (let y = 0; y <= d; y++) p.set(x, y, sh([160, 131, 72], 0.9 + p.r() * 0.15)); }
+    });
+    for (let st = 0; st < 8; st++) {
+      tex('wheat_' + st, (p) => {
+        p.clear();
+        const hgt = 3 + st * 1.6;
+        const green = [60 + st * 10, 150 - st * 4, 40], gold = [200, 175, 70];
+        for (const bx of [2, 5, 8, 11, 13]) {
+          const hh = Math.floor(hgt * (0.8 + p.r() * 0.25));
+          for (let k = 0; k < hh; k++) {
+            const y = 15 - k, x = bx + (k > hh * 0.6 ? (bx % 2 ? 1 : 0) : 0);
+            const c = st >= 6 && k > hh - 4 ? gold : green;
+            p.set(x, y, sh(st === 7 ? mixc(c, gold, 0.7) : c, 0.85 + p.r() * 0.25));
+            if (st >= 5 && k > hh - 4 && k % 2) p.set(x + 1, y, sh(gold, 0.8));
+          }
+        }
+      });
+    }
+    const saplingCols = { oak: [[70, 130, 40], [104, 82, 50]], birch: [[110, 150, 70], [216, 215, 210]], spruce: [[40, 90, 50], [58, 38, 18]], jungle: [[50, 140, 30], [86, 68, 26]], acacia: [[110, 130, 30], [104, 97, 88]] };
+    for (const w in saplingCols) {
+      tex(w + '_sapling', (p) => {
+        p.clear();
+        const [lc, tc] = saplingCols[w];
+        for (let y = 9; y < 16; y++) p.set(7, y, tc);
+        for (let i = 0; i < 26; i++) {
+          const a = p.r() * Math.PI * 2, r = p.r() * 4.5;
+          p.set(Math.round(7.5 + Math.cos(a) * r), Math.round(6 + Math.sin(a) * r * 0.9), sh(lc, 0.75 + p.r() * 0.45));
+        }
+      });
+    }
+    const doorTex = (p, top) => {
+      p.copy(cache.oak_planks);
+      for (let i = 0; i < S; i++) { p.set(0, i, [90, 66, 38]); p.set(15, i, [90, 66, 38]); if (top) p.set(i, 0, [90, 66, 38]); else p.set(i, 15, [90, 66, 38]); }
+      if (top) { for (let y = 3; y < 13; y++) for (let x = 3; x < 13; x++) if (x !== 7 && x !== 8 && y !== 7 && y !== 8) p.set(x, y, [150, 200, 220], 0); }
+      else { for (let y = 3; y < 13; y++) { p.set(3, y, [120, 92, 55]); p.set(12, y, [120, 92, 55]); } for (let x = 3; x < 13; x++) { p.set(x, 3, [120, 92, 55]); p.set(x, 12, [120, 92, 55]); } p.set(12, 1, [60, 60, 60]); }
+    };
+    tex('door_bottom', (p) => doorTex(p, false));
+    tex('door_top', (p) => doorTex(p, true));
+    tex('ladder', (p) => {
+      p.clear();
+      for (let y = 0; y < S; y++) { p.set(2, y, [120, 90, 50]); p.set(3, y, [100, 74, 40]); p.set(12, y, [120, 90, 50]); p.set(13, y, [100, 74, 40]); }
+      for (const y of [2, 6, 10, 14]) for (let x = 4; x < 12; x++) { p.set(x, y, [140, 108, 62]); p.set(x, y + 1, [95, 70, 40]); }
+    });
+    const chestBase = (p) => { planks(p, [150, 105, 50]); for (let i = 0; i < S; i++) { p.set(i, 0, [70, 45, 20]); p.set(i, 15, [70, 45, 20]); p.set(0, i, [70, 45, 20]); p.set(15, i, [70, 45, 20]); } };
+    tex('chest_top', (p) => chestBase(p));
+    tex('chest_side', (p) => { chestBase(p); for (let x = 0; x < S; x++) { p.set(x, 5, [60, 40, 18]); p.set(x, 6, [70, 45, 20]); } });
+    tex('chest_front', (p) => {
+      chestBase(p);
+      for (let x = 0; x < S; x++) { p.set(x, 5, [60, 40, 18]); p.set(x, 6, [70, 45, 20]); }
+      for (let y = 4; y < 9; y++) for (let x = 7; x < 9; x++) p.set(x, y, y === 4 ? [230, 230, 220] : [180, 180, 170]);
+    });
+    tex('lantern', (p) => {
+      p.clear();
+      for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const edge = x === 0 || x === 15 || y === 0 || y === 15 || x === 7 || y === 7;
+        p.set(x, y, edge ? [60, 60, 70] : mixc([255, 200, 80], [255, 240, 170], p.r()));
+      }
+    });
+    tex('bed_top', (p) => {
+      p.each((x, y) => p.set(x, y, y < 5 ? sh([235, 235, 235], 0.92 + p.r() * 0.08) : sh([170, 40, 40], 0.9 + p.r() * 0.12)));
+      for (let x = 0; x < S; x++) p.set(x, 5, [120, 25, 25]);
+    });
+    tex('bed_side', (p) => {
+      p.clear();
+      p.each((x, y) => { if (y >= 7 && y <= 12) p.set(x, y, y < 9 ? sh([235, 235, 235], 0.95) : sh([160, 35, 35], 0.9 + p.r() * 0.1)); if (y > 12) p.set(x, y, [150, 115, 70]); });
+    });
+
+    // ---------------- Oggetti ----------------
+    const plot = (p, pts, c, a) => { for (const [x, y] of pts) p.set(x, y, c, a); };
+    const line = (p, x0, y0, x1, y1, c) => {
+      const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+      for (let i = 0; i <= n; i++) p.set(Math.round(x0 + ((x1 - x0) * i) / n), Math.round(y0 + ((y1 - y0) * i) / n), c);
+    };
+    const outline = (p, col) => {
+      // bordo scuro attorno ai pixel opachi (stile oggetti)
+      const src = new Uint8Array(p.d);
+      for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        if (src[(y * S + x) * 4 + 3]) continue;
+        let near = false;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx, ny = y + dy;
+          if (nx >= 0 && ny >= 0 && nx < S && ny < S && src[(ny * S + nx) * 4 + 3] > 0 && !(src[(ny * S + nx) * 4] < 40 && src[(ny * S + nx) * 4 + 1] < 40)) near = true;
+        }
+        if (near) p.set(x, y, col || [30, 24, 18]);
+      }
+    };
+    const HANDLE = [[137, 103, 39], [104, 78, 30], [73, 54, 21]];
+    const handle = (p, len) => {
+      for (let i = 0; i < len; i++) {
+        const x = 2 + i, y = 13 - i;
+        p.set(x, y, HANDLE[1]); p.set(x + 1, y, HANDLE[0]);
+      }
+    };
+    tex('stick', (p) => { p.clear(); for (let i = 0; i < 11; i++) { p.set(3 + i, 13 - i, HANDLE[1]); p.set(4 + i, 13 - i, HANDLE[0]); } outline(p); });
+    const MAT = { wooden: [[160, 120, 70], [120, 88, 48], [190, 150, 95]], stone: [[130, 130, 130], [95, 95, 95], [165, 165, 165]], iron: [[216, 216, 216], [160, 160, 160], [255, 255, 255]], golden: [[250, 215, 60], [200, 150, 20], [255, 250, 150]], diamond: [[80, 230, 215], [30, 160, 150], [200, 255, 250]] };
+    for (const m in MAT) {
+      const [c, dk, lt] = MAT[m];
+      tex(m + '_pickaxe', (p) => {
+        p.clear(); handle(p, 9);
+        for (let x = 3; x <= 13; x++) {
+          const y = Math.round(2.2 + Math.pow(x - 8, 2) / 9);
+          if (x >= 4 && x <= 12) { p.set(x, y, c); p.set(x, y + 1, dk); }
+          if (x === 3 || x === 13) p.set(x, y, dk);
+          if (x > 5 && x < 11) p.set(x, y - 1, lt);
+        }
+        outline(p);
+      });
+      tex(m + '_axe', (p) => {
+        p.clear(); handle(p, 10);
+        const pts = [[8, 2], [9, 2], [10, 2], [7, 3], [8, 3], [9, 3], [10, 3], [11, 3], [7, 4], [8, 4], [9, 4], [10, 4], [11, 4], [12, 4], [8, 5], [9, 5], [10, 5], [11, 5], [12, 5], [11, 6], [12, 6]];
+        plot(p, pts, c);
+        plot(p, [[8, 2], [7, 3], [7, 4]], lt);
+        plot(p, [[11, 6], [12, 6], [12, 5]], dk);
+        outline(p);
+      });
+      tex(m + '_shovel', (p) => {
+        p.clear(); handle(p, 8);
+        const pts = [[11, 1], [12, 1], [10, 2], [11, 2], [12, 2], [13, 2], [10, 3], [11, 3], [12, 3], [13, 3], [11, 4], [12, 4]];
+        plot(p, pts, c); plot(p, [[11, 1], [10, 2]], lt); plot(p, [[13, 3], [12, 4]], dk);
+        outline(p);
+      });
+      tex(m + '_sword', (p) => {
+        p.clear();
+        for (let i = 0; i < 9; i++) { p.set(13 - i, 2 + i, c); p.set(14 - i, 2 + i, lt); p.set(13 - i, 3 + i, dk); }
+        plot(p, [[3, 9], [4, 10], [6, 12], [7, 13], [5, 11]], [80, 60, 30]);
+        plot(p, [[4, 11], [3, 12], [2, 13]], HANDLE[1]);
+        p.set(1, 14, dk);
+        outline(p);
+      });
+      tex(m + '_hoe', (p) => {
+        p.clear(); handle(p, 10);
+        plot(p, [[8, 3], [9, 3], [10, 3], [11, 3], [12, 3], [12, 4]], c);
+        plot(p, [[8, 2], [9, 2], [10, 2]], lt);
+        outline(p);
+      });
+    }
+    const blob = (p, cx, cy, rx, ry, cols, rough) => {
+      for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const d = Math.pow((x + 0.5 - cx) / rx, 2) + Math.pow((y + 0.5 - cy) / ry, 2);
+        if (d < 1 - (rough ? p.r() * rough : 0)) {
+          const shade = 1 - ((x - cx) + (y - cy)) / (rx + ry) * 0.5;
+          p.set(x, y, pal(cols, Math.min(0.99, Math.max(0, shade * 0.5 + p.r() * 0.3))));
+        }
+      }
+    };
+    tex('coal', (p) => { p.clear(); blob(p, 8, 8.5, 5.5, 5, [[20, 20, 20], [35, 35, 38], [50, 50, 55], [70, 70, 75]], 0.35); outline(p, [10, 10, 10]); });
+    const ingot = (p, c, dk, lt) => {
+      p.clear();
+      for (let y = 5; y < 12; y++) {
+        const x0 = 2 + Math.max(0, 7 - y) * 0 + (11 - y) * 0.5, x1 = 14 - (11 - y) * 0.5;
+        for (let x = Math.floor(x0); x < Math.ceil(x1); x++) p.set(x, y, y === 5 ? lt : y > 9 ? dk : c);
+      }
+      outline(p, sh(dk, 0.5));
+    };
+    tex('iron_ingot', (p) => ingot(p, [215, 215, 215], [150, 150, 150], [255, 255, 255]));
+    tex('gold_ingot', (p) => ingot(p, [250, 220, 70], [200, 150, 20], [255, 255, 170]));
+    tex('copper_ingot', (p) => ingot(p, [220, 125, 85], [160, 80, 50], [250, 180, 140]));
+    const gem = (p, c, dk, lt) => {
+      p.clear();
+      for (let y = 3; y < 14; y++) {
+        const w = y < 6 ? (y - 3) * 2 + 4 : Math.max(1, (13 - y) * 1.1);
+        for (let x = Math.round(8 - w / 2); x < Math.round(8 + w / 2); x++) p.set(x, y, y < 6 ? lt : x < 8 ? c : dk);
+      }
+      p.set(6, 4, [255, 255, 255]);
+      outline(p, sh(dk, 0.4));
+    };
+    tex('diamond', (p) => gem(p, [80, 230, 215], [30, 160, 150], [200, 255, 250]));
+    tex('emerald', (p) => gem(p, [40, 210, 90], [10, 130, 50], [160, 255, 190]));
+    tex('lapis', (p) => { p.clear(); blob(p, 8, 8, 5, 5.5, [[20, 40, 120], [35, 70, 180], [60, 100, 220], [120, 160, 255]], 0.4); outline(p, [10, 20, 60]); });
+    tex('redstone', (p) => { p.clear(); for (let i = 0; i < 40; i++) { const a = p.r() * 6.28, r = p.r() * 5; p.set(Math.round(8 + Math.cos(a) * r), Math.round(9 + Math.sin(a) * r * 0.7), [150 + p.r() * 105, 0, 0]); } });
+    tex('gunpowder', (p) => { p.clear(); for (let i = 0; i < 40; i++) { const a = p.r() * 6.28, r = p.r() * 5; const g = 60 + p.r() * 60; p.set(Math.round(8 + Math.cos(a) * r), Math.round(9 + Math.sin(a) * r * 0.7), [g, g, g]); } });
+    tex('string', (p) => { p.clear(); let x = 3, y = 12; for (let i = 0; i < 18; i++) { p.set(x, y, [240, 240, 240]); x += p.r() < 0.6 ? 1 : 0; y += p.r() < 0.5 ? -1 : (p.r() < 0.5 ? 1 : 0); x = Math.min(13, x); y = Math.max(2, Math.min(14, y)); } });
+    tex('bone', (p) => { p.clear(); line(p, 4, 11, 11, 4, [235, 230, 210]); line(p, 5, 11, 11, 5, [210, 205, 185]); plot(p, [[3, 11], [4, 12], [3, 12], [11, 3], [12, 4], [12, 3]], [240, 235, 220]); outline(p, [90, 85, 70]); });
+    tex('feather', (p) => { p.clear(); line(p, 3, 13, 12, 2, [200, 200, 200]); for (let i = 0; i < 8; i++) { p.set(5 + i, 10 - i, [250, 250, 250]); p.set(6 + i, 11 - i, [235, 235, 235]); p.set(4 + i, 9 - i, [245, 245, 245]); } });
+    tex('leather', (p) => { p.clear(); blob(p, 8, 8, 6, 5.5, [[110, 60, 30], [140, 80, 40], [160, 95, 50], [180, 110, 60]], 0.25); outline(p, [60, 30, 15]); });
+    tex('flint', (p) => { p.clear(); blob(p, 8, 8.5, 4.5, 5.5, [[30, 30, 30], [55, 55, 55], [80, 80, 80], [110, 110, 110]], 0.3); outline(p, [15, 15, 15]); });
+    tex('wheat_item', (p) => { p.clear(); for (let i = 0; i < 5; i++) { line(p, 4 + i, 14, 6 + i * 2, 3, [200, 170, 60]); p.set(6 + i * 2, 3, [230, 200, 90]); p.set(6 + i * 2, 4, [220, 190, 80]); } line(p, 4, 11, 12, 11, [150, 110, 40]); });
+    tex('wheat_seeds', (p) => { p.clear(); for (let i = 0; i < 9; i++) { const x = 3 + Math.floor(p.r() * 10), y = 4 + Math.floor(p.r() * 9); p.set(x, y, [90, 150, 40]); p.set(x + 1, y, [60, 110, 30]); } });
+    tex('arrow', (p) => {
+      p.clear();
+      line(p, 3, 12, 12, 3, [120, 90, 50]);
+      plot(p, [[11, 3], [12, 3], [12, 4], [13, 2], [12, 2], [13, 3]], [180, 180, 180]);
+      plot(p, [[2, 12], [3, 13], [2, 13], [1, 13], [2, 14], [4, 13], [3, 11]], [240, 240, 240]);
+    });
+    tex('bow', (p) => {
+      p.clear();
+      for (let i = 0; i < 12; i++) { const a = -0.3 + (i / 11) * 2.2; p.set(Math.round(3 + Math.cos(a - 0.6) * 9), Math.round(12 - Math.sin(a + 0.6) * 9), [120, 90, 50]); }
+      line(p, 3, 3, 12, 12, [230, 230, 230]);
+      outline(p, [60, 45, 25]);
+    });
+    tex('flint_and_steel', (p) => { p.clear(); plot(p, [[3, 5], [4, 4], [5, 4], [6, 5], [6, 6], [5, 7], [4, 8]], [180, 180, 180]); blob(p, 10.5, 10.5, 3, 3, [[30, 30, 30], [60, 60, 60], [90, 90, 90]], 0.2); outline(p, [20, 20, 20]); });
+    // cibo
+    tex('apple', (p) => { p.clear(); blob(p, 8, 9.5, 5.5, 5, [[150, 10, 10], [200, 25, 20], [230, 50, 40], [255, 120, 110]], 0); plot(p, [[8, 3], [8, 4]], [100, 70, 30]); plot(p, [[9, 3], [10, 2], [10, 3]], [60, 150, 40]); outline(p, [60, 5, 5]); });
+    tex('golden_apple', (p) => { p.clear(); blob(p, 8, 9.5, 5.5, 5, [[200, 150, 10], [240, 200, 40], [255, 230, 90], [255, 255, 200]], 0); plot(p, [[8, 3], [8, 4]], [100, 70, 30]); plot(p, [[9, 3], [10, 2], [10, 3]], [60, 150, 40]); outline(p, [90, 60, 5]); });
+    tex('bread', (p) => { p.clear(); blob(p, 8, 9, 7, 3.5, [[150, 90, 30], [180, 115, 45], [200, 140, 60], [220, 170, 90]], 0); for (const x of [5, 8, 11]) p.set(x, 7, [235, 200, 130]); outline(p, [80, 45, 15]); });
+    const meat = (p, base, fat, dk) => { p.clear(); blob(p, 8, 8.5, 6, 4.5, [dk, base, sh(base, 1.15), fat], 0.1); line(p, 3, 7, 5, 5, fat); outline(p, sh(dk, 0.5)); };
+    tex('porkchop', (p) => meat(p, [230, 130, 130], [250, 220, 220], [190, 90, 90]));
+    tex('cooked_porkchop', (p) => meat(p, [190, 130, 90], [230, 200, 160], [140, 90, 60]));
+    tex('beef', (p) => meat(p, [200, 40, 40], [240, 220, 220], [150, 20, 20]));
+    tex('steak', (p) => meat(p, [130, 80, 45], [190, 150, 110], [90, 50, 25]));
+    tex('mutton', (p) => meat(p, [210, 70, 70], [245, 230, 230], [160, 40, 40]));
+    tex('cooked_mutton', (p) => meat(p, [150, 95, 60], [210, 180, 150], [100, 60, 35]));
+    tex('rotten_flesh', (p) => meat(p, [140, 90, 60], [110, 130, 60], [90, 60, 40]));
+    const drum = (p, c, dk) => { p.clear(); blob(p, 9.5, 6.5, 4.5, 4, [dk, c, sh(c, 1.1), sh(c, 1.2)], 0.1); line(p, 6, 9, 3, 12, [240, 235, 220]); plot(p, [[2, 12], [3, 13], [2, 13]], [250, 250, 240]); outline(p, sh(dk, 0.5)); };
+    tex('chicken', (p) => drum(p, [245, 200, 180], [210, 160, 140]));
+    tex('cooked_chicken', (p) => drum(p, [200, 140, 70], [150, 95, 40]));
+    tex('carrot', (p) => { p.clear(); for (let i = 0; i < 9; i++) { p.set(4 + i, 12 - i, [240, 130, 20]); p.set(5 + i, 12 - i, [220, 110, 15]); p.set(4 + i, 11 - i, [250, 160, 40]); } plot(p, [[13, 2], [14, 1], [12, 1], [14, 3]], [60, 150, 40]); outline(p, [100, 50, 5]); });
+    // uova generatrici
+    for (const [m, , c1, c2] of MC.EGG_COLORS) {
+      tex('egg_' + m, (p) => {
+        p.clear();
+        for (let y = 2; y < 15; y++) {
+          const ty = (y - 2) / 12;
+          const w = Math.sqrt(Math.max(0, 1 - Math.pow((ty - 0.58) / 0.62, 2))) * 5.2 * (ty < 0.5 ? 0.85 + ty * 0.3 : 1);
+          for (let x = Math.round(8 - w); x < Math.round(8 + w); x++) {
+            const shd = 1.08 - (x - 5) * 0.03 - ty * 0.1;
+            p.set(x, y, sh(c1, shd));
+          }
+        }
+        for (let i = 0; i < 9; i++) {
+          const x = 4 + Math.floor(p.r() * 8), y = 4 + Math.floor(p.r() * 9);
+          if (p.alpha(x, y) && p.alpha(x + 1, y)) { p.set(x, y, c2); if (p.r() < 0.6) p.set(x + 1, y, sh(c2, 0.9)); }
+        }
+        outline(p, sh(c1, 0.35));
+      });
+    }
+
     // Crepe di rottura (10 stadi)
     const crackRng = mulberry32(12345);
     const pts = [];
