@@ -839,7 +839,7 @@
         for (let i = 1; i < 4; i++) { stairs(i, 5, 1, 2); stairs(i, 5, 3, 0); }
         stairs(1, 5, 2, 1); stairs(3, 5, 2, 3);
         S(2, 5, 2, M.planks); S(2, 6, 2, M.slab);
-        S(1, 1, 3, B.bed); S(3, 1, 3, B.crafting_table, dirToFace[rf(0)]);
+        S(1, 1, 2, B.bed, rf(2)); S(1, 1, 3, B.bed, rf(2) | 4); S(3, 1, 3, B.crafting_table, dirToFace[rf(0)]);
         S(1, 1, 1, B.lantern);
         return;
       }
@@ -857,8 +857,8 @@
         // tetto a capanna lungo X
         for (let lx = -1; lx <= 7; lx++) { stairs(lx, 5, 0, 2); stairs(lx, 5, 5, 0); stairs(lx, 6, 1, 2); stairs(lx, 6, 4, 0); S(lx, 7, 2, M.slab); S(lx, 7, 3, M.slab); }
         for (const lx of [0, 6]) { S(lx, 5, 1, M.planks); S(lx, 5, 2, M.planks); S(lx, 5, 3, M.planks); S(lx, 5, 4, M.planks); S(lx, 6, 2, M.planks); S(lx, 6, 3, M.planks); }
-        S(1, 1, 4, B.chest, dirToFace[rf(2)] | 8); S(2, 1, 4, B.bookshelf); S(5, 1, 4, B.bed); S(5, 1, 1, B.crafting_table, dirToFace[rf(1)]);
-        S(1, 1, 1, B.lantern); S(3, 4, 3, B.lantern);
+        S(1, 1, 4, B.chest, dirToFace[rf(2)] | 8); S(2, 1, 4, B.bookshelf); S(5, 1, 3, B.blue_bed, rf(2)); S(5, 1, 4, B.blue_bed, rf(2) | 4); S(5, 1, 1, B.crafting_table, dirToFace[rf(1)]);
+        S(1, 1, 1, B.lantern); S(3, 4, 3, B.lantern, 1);
         return;
       }
       if (b.type === 'smith') {

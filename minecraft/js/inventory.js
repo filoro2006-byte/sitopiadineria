@@ -105,7 +105,11 @@
   r('cobblestone_wall', 6, [['cobblestone', 6]], 'table');
   r('glass_pane', 16, [['glass', 6]], 'table');
   r('oak_door', 3, [['oak_planks', 6]], 'table');
-  r('bed', 1, [['white_wool', 3], ['#planks', 3]], 'table');
+  for (const [c] of MC.BED_COLORS) r(c === 'red' ? 'bed' : c + '_bed', 1, [[c + '_wool', 3], ['#planks', 3]], 'table');
+  for (const [c] of MC.DYE_COLORS) r(c + '_carpet', 3, [[c + '_wool', 2]]);
+  r('oak_fence_gate', 1, [['stick', 4], ['oak_planks', 2]], 'table');
+  r('spruce_fence_gate', 1, [['stick', 4], ['spruce_planks', 2]], 'table');
+  r('oak_trapdoor', 2, [['oak_planks', 6]], 'table');
   r('lantern', 1, [['torch', 1], ['iron_ingot', 1]], 'table');
   for (const m of ['oak_planks', 'spruce_planks', 'birch_planks', 'cobblestone', 'stone', 'stone_bricks', 'bricks', 'sandstone']) {
     const base = m.replace('_planks', '');
@@ -232,34 +236,44 @@
       return c.toDataURL();
     }
     const tint = tintOf();
-    const top = texCanvas(d.tex.top, d.tint ? tint : null);
-    const side = texCanvas(d.tex.side, d.tint ? tint : null, d.tint === 2);
-    const front = d.tex.front ? texCanvas(d.tex.front) : side;
-    // proiezione isometrica di un punto del blocco (0..1)
-    const P = (x, y, z) => [32 + 28 * x - 28 * z, 3 + 14 * x + 14 * z + 30 * (1 - y)];
+    const cv = {};
+    const tc = (name, tn, mask) => { const k = name + (tn ? ':t' : '') + (mask ? ':m' : ''); if (!cv[k]) cv[k] = texCanvas(name, tn, mask); return cv[k]; };
+    const topN = d.tex.top, sideN = d.tex.side, frontN = d.tex.front || d.tex.side;
+    // scatole da disegnare: [x0,y0,z0,x1,y1,z1, {f:[nomi per faccia]}]
+    let boxes = [[0, 0, 0, 1, 1, 1]];
+    if (d.shape === 'model') boxes = d.model(d.facing ? 4 : 0, d.conn ? 3 : 0).map((b) => b.slice());
+    if (d.shape === 'cactus') boxes = [[1 / 16, 0, 1 / 16, 15 / 16, 1, 15 / 16]];
+    if (d.bed) {
+      boxes = d.model(2, 0).map((b) => b.slice()).concat(d.model(2 | 4, 0).map((b) => { const c2 = b.slice(); c2[2] += 1; c2[5] += 1; return c2; }));
+    }
+    // adatta alla cornice
+    let mx = 1;
+    for (const b of boxes) mx = Math.max(mx, b[3], b[4], b[5]);
+    const sc = 1 / mx;
+    const P = (x, y, z) => { x *= sc; y *= sc; z *= sc; return [32 + 28 * x - 28 * z, 3 + 14 * x + 14 * z + 30 * (1 - y) + (1 - sc) * 22]; };
     const k = 1.02;
-    const face = (img, sx, sy, sw, sh, o, ua, va, shade) => {
-      if (sw <= 0 || sh <= 0) return;
+    const face = (img, sx, sy, sw, sh2, o, ua, va, shade) => {
+      if (sw <= 0 || sh2 <= 0) return;
       ctx.save();
-      ctx.setTransform(((ua[0] - o[0]) / sw) * k, ((ua[1] - o[1]) / sw) * k, ((va[0] - o[0]) / sh) * k, ((va[1] - o[1]) / sh) * k, o[0], o[1]);
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+      ctx.setTransform(((ua[0] - o[0]) / sw) * k, ((ua[1] - o[1]) / sw) * k, ((va[0] - o[0]) / sh2) * k, ((va[1] - o[1]) / sh2) * k, o[0], o[1]);
+      ctx.drawImage(img, sx, sy, sw, sh2, 0, 0, sw, sh2);
       if (shade) {
         ctx.globalCompositeOperation = 'source-atop';
         ctx.fillStyle = 'rgba(0,0,0,' + shade + ')';
-        ctx.fillRect(0, 0, sw, sh);
+        ctx.fillRect(0, 0, sw, sh2);
       }
       ctx.restore();
     };
-    let boxes = [[0, 0, 0, 1, 1, 1]];
-    if (d.shape === 'model') boxes = d.model(d.stairs ? 0 : 0, d.conn ? 3 : 0).slice();
-    if (d.shape === 'cactus') boxes = [[1 / 16, 0, 1 / 16, 15 / 16, 1, 15 / 16]];
     boxes.sort((a, b) => (a[0] + a[2] + a[1]) - (b[0] + b[2] + b[1]));
     for (const b of boxes) {
       const [x0, y0, z0, x1, y1, z1] = b;
-      // fronte (z = z1), lato destro (x = x1), sopra (y = y1)
-      face(front, x0 * S, (1 - y1) * S, (x1 - x0) * S, (y1 - y0) * S, P(x0, y1, z1), P(x1, y1, z1), P(x0, y0, z1), 0.22);
-      face(side, (1 - z1) * S, (1 - y1) * S, (z1 - z0) * S, (y1 - y0) * S, P(x1, y1, z1), P(x1, y1, z0), P(x1, y0, z1), 0.42);
-      face(top, x0 * S, z0 * S, (x1 - x0) * S, (z1 - z0) * S, P(x0, y1, z0), P(x1, y1, z0), P(x0, y1, z1), 0);
+      const ov = b[6] && b[6].f;
+      const img = (fi, def, tn, mask) => (ov && ov[fi] ? tc(ov[fi]) : tc(def, tn, mask));
+      const fr = (v) => v - Math.floor(v);
+      const zz0 = fr(z0) === 0 && z0 > 0 ? 0 : fr(z0), zz1 = zz0 + (z1 - z0);
+      face(img(4, frontN, d.tint ? tint : null, d.tint === 2), x0 * S, (1 - y1) * S, (x1 - x0) * S, (y1 - y0) * S, P(x0, y1, z1), P(x1, y1, z1), P(x0, y0, z1), 0.22);
+      face(img(0, sideN, d.tint ? tint : null, d.tint === 2), (1 - zz1) * S, (1 - y1) * S, (zz1 - zz0) * S, (y1 - y0) * S, P(x1, y1, z1), P(x1, y1, z0), P(x1, y0, z1), 0.42);
+      face(img(2, topN, d.tint ? tint : null), x0 * S, zz0 * S, (x1 - x0) * S, (zz1 - zz0) * S, P(x0, y1, z0), P(x1, y1, z0), P(x0, y1, z1), 0);
     }
     return c.toDataURL();
   }

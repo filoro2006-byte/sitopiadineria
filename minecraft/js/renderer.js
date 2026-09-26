@@ -126,11 +126,17 @@ float lcurve(float l){
   float bb = 1.0 - pow(1.0 - b, 4.0);
   return mix(b, bb, u_gamma);
 }
+uniform int u_ultra;
 float shadowAt(vec3 sc){
   if (sc.x <= 0.001 || sc.x >= 0.999 || sc.y <= 0.001 || sc.y >= 0.999 || sc.z >= 1.0) return 1.0;
   float d = sc.z - 0.0015;
   float s = 0.0;
   float o = u_shadowTexel;
+  if (u_ultra == 1) {
+    float o2 = o * 1.5;
+    for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) s += texture(u_shadowTex, vec3(sc.xy + vec2(float(i), float(j)) * o2, d));
+    return s / 9.0;
+  }
   s += texture(u_shadowTex, vec3(sc.xy + vec2(-o, -o), d));
   s += texture(u_shadowTex, vec3(sc.xy + vec2( o, -o), d));
   s += texture(u_shadowTex, vec3(sc.xy + vec2(-o,  o), d));
@@ -167,7 +173,13 @@ uniform vec3 u_sunDir;
 uniform vec3 u_zenith;
 uniform vec3 u_horizon;
 uniform int u_fancyWater;
+uniform sampler2D u_opaque;
+uniform highp sampler2D u_opaqueDepth;
+uniform vec2 u_screen;
+uniform vec3 u_sunGlow;
+uniform int u_waterUltra;
 ${LIGHT_FN}
+float linZ(float d){ float z = d * 2.0 - 1.0; return 2.0 * 0.05 * 1200.0 / (1200.05 - z * 1199.95); }
 in vec3 v_uvl;
 in vec2 v_light;
 in float v_shade;
@@ -222,14 +234,36 @@ void main(){
       vec3 R = reflect(-V, nw);
       vec3 sky = mix(u_horizon, u_zenith, pow(clamp(R.y, 0.0, 1.0), 0.6));
       float outdoor = smoothstep(8.0, 14.0, v_light.x);
-      col = mix(col, sky * (0.35 + 0.65 * u_day) , fres * 0.85 * outdoor);
-      float spec = pow(max(dot(R, u_sunDir), 0.0), 220.0) * (u_shadows == 1 ? L.w : outdoor) * u_direct;
-      col += vec3(1.0, 0.92, 0.75) * spec * 2.5;
-      alpha = mix(alpha, 1.0, fres * 0.7);
+      if (u_waterUltra == 1) {
+        // acqua trasparente: rifrazione del fondale e assorbimento con la profondità
+        vec2 suv = gl_FragCoord.xy / u_screen;
+        float dW = linZ(gl_FragCoord.z);
+        float thick = max(0.0, linZ(texture(u_opaqueDepth, suv).r) - dW);
+        vec2 ruv = suv + nw.xz * 0.05 * min(1.0, thick * 0.4);
+        float thick2 = linZ(texture(u_opaqueDepth, ruv).r) - dW;
+        if (thick2 < 0.0) ruv = suv; else thick = thick2;
+        vec3 refr = texture(u_opaque, ruv).rgb;
+        vec3 deep = vec3(0.05, 0.2, 0.3) * (0.3 + 0.7 * max(L.r, 0.2));
+        float k = 1.0 - exp(-thick * 0.26);
+        vec3 body = mix(refr * vec3(0.72, 0.9, 1.0), deep, k);
+        // schiuma a riva
+        float foam = (1.0 - smoothstep(0.0, 0.35, thick)) * (0.55 + 0.45 * sin(v_wp.x * 5.0 + v_wp.z * 4.0 + u_time * 2.5));
+        body = mix(body, vec3(0.9, 0.95, 1.0) * L.rgb, clamp(foam, 0.0, 1.0) * 0.45);
+        col = mix(body, sky * (0.35 + 0.65 * u_day), fres * 0.9 * outdoor);
+        float spec = pow(max(dot(R, u_sunDir), 0.0), 260.0) * (u_shadows == 1 ? L.w : outdoor) * u_direct;
+        col += vec3(1.0, 0.92, 0.75) * spec * 3.0;
+        alpha = 1.0;
+      } else {
+        col = mix(col, sky * (0.35 + 0.65 * u_day) , fres * 0.85 * outdoor);
+        float spec = pow(max(dot(R, u_sunDir), 0.0), 220.0) * (u_shadows == 1 ? L.w : outdoor) * u_direct;
+        col += vec3(1.0, 0.92, 0.75) * spec * 2.5;
+        alpha = mix(alpha, 1.0, fres * 0.7);
+      }
     }
   }
   float fog = smoothstep(u_fog.x, u_fog.y, v_dist);
-  col = mix(col, u_fogCol, fog);
+  vec3 fc = u_fogCol + u_sunGlow * pow(max(dot(normalize(v_rel), u_sunDir), 0.0), 6.0);
+  col = mix(col, fc, fog);
   o = vec4(col, u_pass == 1 ? mix(alpha, 1.0, fog * 0.6) : 1.0);
 }`;
 
@@ -333,14 +367,36 @@ uniform float u_time;
 uniform float u_underwater;
 uniform float u_bloomAmt;
 uniform float u_exposure;
+uniform highp sampler2D u_depth;
+uniform int u_ssao;
+uniform vec2 u_proj; // tan(fov/2)*aspect, tan(fov/2)
 in vec2 v_uv;
 out vec4 o;
+float linZ(float d){ float z = d * 2.0 - 1.0; return 2.0 * 0.05 * 1200.0 / (1200.05 - z * 1199.95); }
+float ssao(vec2 uv){
+  float d = texture(u_depth, uv).r;
+  if (d >= 0.9999) return 1.0;
+  float z = linZ(d);
+  if (z < 0.35 || z > 90.0) return 1.0;
+  float r = 0.5 * 0.75 / (z * u_proj.y);
+  float occ = 0.0;
+  for (int i = 0; i < 12; i++) {
+    float a = float(i) * 2.39996 + fract(sin(dot(uv, vec2(12.9898, 78.233))) * 43758.5) * 6.2831;
+    float rr = r * (0.25 + 0.75 * float(i + 1) / 12.0);
+    vec2 o2 = vec2(cos(a), sin(a)) * rr * vec2(u_proj.y / u_proj.x, 1.0);
+    float zs = linZ(texture(u_depth, uv + o2).r);
+    float diff = z - zs;
+    occ += smoothstep(0.03, 0.25, diff) * (1.0 - smoothstep(0.8, 2.0, diff));
+  }
+  return 1.0 - occ / 12.0 * 0.55;
+}
 void main(){
   vec2 uv = v_uv;
   if (u_underwater > 0.5) {
     uv += vec2(sin(uv.y * 24.0 + u_time * 2.0), cos(uv.x * 20.0 + u_time * 1.7)) * 0.0025;
   }
   vec3 c = texture(u_scene, uv).rgb;
+  if (u_ssao == 1) c *= ssao(uv);
   c += texture(u_bloom, uv).rgb * u_bloomAmt;
   c += texture(u_rays, uv).rgb * u_rayCol;
   // compressione morbida delle luci alte (i colori sotto 0.8 restano invariati)
@@ -920,8 +976,8 @@ void main(){ o = u_col; }`;
     _freePost() {
       const gl = this.gl, P = this.post;
       if (!P) return;
-      for (const t of [P.sceneTex, P.depthTex, P.a, P.b, P.r]) gl.deleteTexture(t);
-      for (const f of [P.sceneFbo, P.aF, P.bF, P.rF, P.msFbo]) if (f) gl.deleteFramebuffer(f);
+      for (const t of [P.sceneTex, P.depthTex, P.a, P.b, P.r, P.opTex, P.opDepth]) gl.deleteTexture(t);
+      for (const f of [P.sceneFbo, P.aF, P.bF, P.rF, P.msFbo, P.opFbo]) if (f) gl.deleteFramebuffer(f);
       for (const r of [P.msColor, P.msDepth]) if (r) gl.deleteRenderbuffer(r);
       this.post = null;
     }
@@ -934,6 +990,9 @@ void main(){ o = u_col; }`;
       P.sceneTex = this._tex(w, h, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, gl.LINEAR);
       P.depthTex = this._tex(w, h, gl.DEPTH_COMPONENT24, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, gl.NEAREST);
       P.sceneFbo = this._fbo(P.sceneTex, P.depthTex);
+      P.opTex = this._tex(w, h, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, gl.LINEAR);
+      P.opDepth = this._tex(w, h, gl.DEPTH_COMPONENT24, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, gl.NEAREST);
+      P.opFbo = this._fbo(P.opTex, P.opDepth);
       const samples = Math.min(4, gl.getParameter(gl.MAX_SAMPLES) || 0);
       if (samples > 1) {
         P.msFbo = gl.createFramebuffer();
@@ -967,6 +1026,23 @@ void main(){ o = u_col; }`;
       const P = this._ensurePost();
       gl.bindFramebuffer(gl.FRAMEBUFFER, P.sceneTarget);
       gl.viewport(0, 0, P.w, P.h);
+    }
+
+    // copia la scena opaca (colore e profondità) per l'acqua dello shader Ultra
+    captureOpaque() {
+      const gl = this.gl;
+      this.opaqueReady = false;
+      if (!this.fx.shaders || !this.fx.ultra || !this.post) return;
+      const P = this.post;
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, P.sceneTarget);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, P.opFbo);
+      gl.blitFramebuffer(0, 0, P.w, P.h, 0, 0, P.w, P.h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+      gl.blitFramebuffer(0, 0, P.w, P.h, 0, 0, P.w, P.h, gl.DEPTH_BUFFER_BIT, gl.NEAREST);
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, P.sceneTarget);
+      gl.viewport(0, 0, P.w, P.h);
+      this.opaqueReady = true;
     }
 
     _pass(prog, fbo, w, h, setup) {
@@ -1021,14 +1097,18 @@ void main(){ o = u_col; }`;
       }
       if (rays <= 0.01) { gl.bindFramebuffer(gl.FRAMEBUFFER, P.rF); gl.viewport(0, 0, P.qw, P.qh); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); }
       // composizione finale
-      this._bindTex(0, P.sceneTex); this._bindTex(1, P.a); this._bindTex(2, P.r);
+      this._bindTex(0, P.sceneTex); this._bindTex(1, P.a); this._bindTex(2, P.r); this._bindTex(3, P.depthTex);
       this._pass(this.compProg, null, P.w, P.h, (u) => {
         gl.uniform1i(u.u_scene, 0); gl.uniform1i(u.u_bloom, 1); gl.uniform1i(u.u_rays, 2);
         const warm = env.sunsetAmt;
         gl.uniform3f(u.u_rayCol, 1.0, 0.85 - warm * 0.25, 0.6 - warm * 0.3);
         gl.uniform1f(u.u_time, time);
         gl.uniform1f(u.u_underwater, env.underwater ? 1 : 0);
-        gl.uniform1f(u.u_bloomAmt, 0.45);
+        gl.uniform1f(u.u_bloomAmt, this.fx.ultra ? 0.6 : 0.45);
+        gl.uniform1i(u.u_depth, 3);
+        gl.uniform1i(u.u_ssao, this.fx.ultra ? 1 : 0);
+        const th = Math.tan((this.camFov * Math.PI) / 360);
+        gl.uniform2f(u.u_proj, th * (P.w / P.h), th);
         gl.uniform1f(u.u_exposure, 1.04);
       });
       gl.bindVertexArray(null);
@@ -1096,6 +1176,7 @@ void main(){ o = u_col; }`;
       const gl = this.gl;
       const aspect = this.canvas.width / this.canvas.height;
       mat4.perspective(this.proj, (cam.fov * Math.PI) / 180, aspect, 0.05, 1200);
+      this.camFov = cam.fov;
       mat4.rotX(this.tmp, -cam.pitch);
       mat4.rotY(this.tmp2, -cam.yaw);
       mat4.mul(this.view, this.tmp, this.tmp2);
@@ -1159,6 +1240,23 @@ void main(){ o = u_col; }`;
       gl.uniform3fv(pr.u.u_zenith, env.zenith);
       gl.uniform3fv(pr.u.u_horizon, env.fogCol);
       gl.uniform1i(pr.u.u_fancyWater, this.fx.shaders ? 1 : 0);
+      gl.uniform1i(pr.u.u_ultra, this.fx.shaders && this.fx.ultra ? 1 : 0);
+      const glow = this.fx.shaders ? env.sunsetAmt * (1 - env.rain) * 0.55 : 0;
+      gl.uniform3f(pr.u.u_sunGlow, env.sunsetCol[0] * glow, env.sunsetCol[1] * glow, env.sunsetCol[2] * glow);
+      const wu = pass === 1 && this.opaqueReady && !env.underwater ? 1 : 0;
+      gl.uniform1i(pr.u.u_waterUltra, wu);
+      // unità 3 e 4: sempre texture non collegate al framebuffer di destinazione
+      if (!this.dummyTex) {
+        this.dummyTex = this._tex(1, 1, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, gl.NEAREST);
+        this.dummyDepth = this._tex(1, 1, gl.DEPTH_COMPONENT24, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, gl.NEAREST);
+      }
+      const usePost = this.fx.shaders && this.post;
+      gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, usePost ? this.post.opTex : this.dummyTex);
+      gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, usePost ? this.post.opDepth : this.dummyDepth);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.uniform1i(pr.u.u_opaque, 3);
+      gl.uniform1i(pr.u.u_opaqueDepth, 4);
+      gl.uniform2f(pr.u.u_screen, this.canvas.width, this.canvas.height);
     }
 
     drawWorld(world, env, cam, time) {

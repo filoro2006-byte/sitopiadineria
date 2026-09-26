@@ -956,6 +956,43 @@
       p.each((x, y) => { if (y >= 7 && y <= 12) p.set(x, y, y < 9 ? sh([235, 235, 235], 0.95) : sh([160, 35, 35], 0.9 + p.r() * 0.1)); if (y > 12) p.set(x, y, [150, 115, 70]); });
     });
 
+    // letti in più colori
+    const BEDC = { red: [165, 32, 32], white: [225, 225, 225], blue: [45, 60, 160], green: [80, 110, 35], yellow: [230, 185, 40], black: [35, 35, 40], purple: [115, 45, 160], pink: [230, 140, 170] };
+    for (const c in BEDC) {
+      const col = BEDC[c];
+      const blanket = (p, x, y) => {
+        let f = 0.9 + p.r() * 0.1;
+        if ((x + y * 3) % 7 === 0) f *= 0.92;
+        if (x === 0 || x === 15) f *= 0.75;
+        return sh(col, f);
+      };
+      tex('bed_foot_' + c, (p) => { p.each((x, y) => p.set(x, y, blanket(p, x, y))); for (let x = 1; x < 15; x++) p.set(x, 15, sh(col, 0.7)); });
+      tex('bed_head_' + c, (p) => {
+        p.each((x, y) => {
+          if (y <= 6) {
+            const edge = x <= 1 || x >= 14 || y === 0 || y === 6;
+            p.set(x, y, edge ? [200, 200, 205] : sh([240, 240, 242], 0.95 + p.r() * 0.05));
+          } else if (y === 7) p.set(x, y, sh(col, 1.2));
+          else p.set(x, y, blanket(p, x, y));
+        });
+      });
+      tex('bed_side_' + c, (p) => {
+        p.each((x, y) => {
+          let cc;
+          if (y <= 8) cc = sh([236, 236, 238], 0.93 + p.r() * 0.06);
+          else if (y <= 11) cc = sh(col, 0.85 + p.r() * 0.1);
+          else cc = sh([150, 110, 60], 0.85 + p.r() * 0.15);
+          p.set(x, y, cc);
+        });
+      });
+    }
+    tex('trapdoor', (p) => {
+      p.copy(cache.oak_planks);
+      for (let i = 0; i < S; i++) { p.set(i, 0, [90, 66, 38]); p.set(i, 15, [90, 66, 38]); p.set(0, i, [90, 66, 38]); p.set(15, i, [90, 66, 38]); }
+      for (const [x0, y0] of [[3, 3], [9, 3], [3, 9], [9, 9]]) for (let y = y0; y < y0 + 4; y++) for (let x = x0; x < x0 + 4; x++) p.set(x, y, [0, 0, 0], 0);
+      for (let i = 1; i < 15; i++) { p.set(i, 7, [120, 92, 55]); p.set(i, 8, [100, 76, 44]); p.set(7, i, [120, 92, 55]); p.set(8, i, [100, 76, 44]); }
+    });
+
     // ---------------- Oggetti ----------------
     const plot = (p, pts, c, a) => { for (const [x, y] of pts) p.set(x, y, c, a); };
     const line = (p, x0, y0, x1, y1, c) => {

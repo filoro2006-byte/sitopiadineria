@@ -501,7 +501,7 @@
 
     _needsUpdate(id) {
       const d = MC.blocks[id];
-      return d && (d.fluid || d.gravity || d.support || d.shape === 'torch' || d.shape === 'cactus' || d.door || d.ladder);
+      return d && (d.fluid || d.gravity || d.support || d.shape === 'torch' || d.shape === 'cactus' || d.door || d.ladder || d.bed);
     }
 
     _delayFor(id) {
@@ -565,6 +565,12 @@
         const oy = m & 8 ? y - 1 : y + 1;
         if (this.getBlock(x, oy, z) !== id) { this.setBlock(x, y, z, 0, 0); if (!(m & 8) && this.onDrop) this.onDrop(id, x, y, z); return; }
         if (!(m & 8) && !SOLID[this.getBlock(x, y - 1, z)]) { this.breakBlock(x, y, z, true); }
+        return;
+      }
+      if (d.bed) {
+        const m = this.getMeta(x, y, z);
+        const DV = [[0, -1], [1, 0], [0, 1], [-1, 0]][m & 3], sgn = m & 4 ? -1 : 1;
+        if (this.getBlock(x + DV[0] * sgn, y, z + DV[1] * sgn) !== id) { this.setBlock(x, y, z, 0, 0); if (!(m & 4) && this.onDrop) this.onDrop(id, x, y, z, m); }
         return;
       }
       if (d.ladder) {

@@ -404,6 +404,9 @@
         let layer = FACE_LAYER[id * 6 + f];
         if (d.facing && f === (meta & 7) && f !== 2 && f !== 3) layer = FRONT_LAYER[id];
         if (d.door && (meta & 8)) layer = DOOR_TOP;
+        const ov = b[6];
+        if (ov && ov.f && ov.f[f]) layer = MC.textures.index[ov.f[f]];
+        const uvRot = ov && ov.r && (f === 2 || f === 3) ? ov.r : 0;
         let sk, bl;
         if (onEdge) { sk = Math.max(pl[np] >> 4, ownSky); bl = Math.max(pl[np] & 15, ownBlk); }
         else { sk = Math.max(ownSky, pl[np] >> 4); bl = Math.max(ownBlk, pl[np] & 15); }
@@ -419,6 +422,7 @@
           if (f === 0 || f === 1) { u = f === 0 ? 1 - pz : pz; v = py; }
           else if (f === 2 || f === 3) { u = px; v = f === 2 ? 1 - pz : pz; }
           else { u = f === 4 ? px : 1 - px; v = py; }
+          for (let q = 0; q < uvRot; q++) { const tu = u; u = 1 - v; v = tu; }
           bld.v(x + px, y + py, z + pz, layer, u, v, d.emissive ? 8 : 0, shade, skv, blv, 255, 255, 255, 0, f);
         }
       }

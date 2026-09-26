@@ -114,7 +114,13 @@
       toggle('s-invert', 'invert', 'Inverti mouse', 'Sì', 'No');
       toggle('s-weather', 'weather', 'Meteo', 'Sì', 'No');
       toggle('s-autojump', 'autoJump', 'Salto automatico', 'Sì', 'No');
-      toggle('s-shaders', 'shaders', 'Shader', 'Sì', 'No');
+      {
+        const el = $('s-shaders');
+        const names = ['No', 'Sì', 'Ultra'];
+        const upd = () => { el.textContent = 'Shader: ' + names[S.shaderLevel || 0]; };
+        el.addEventListener('click', () => { S.shaderLevel = ((S.shaderLevel || 0) + 1) % 3; upd(); g.audio.click(); });
+        this._upd_shaderLevel = upd;
+      }
       toggle('s-shadows', 'shadows', 'Ombre', 'Sì', 'No');
 
       // inventario

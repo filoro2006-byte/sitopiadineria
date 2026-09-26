@@ -168,8 +168,11 @@
   add('amethyst_block', 'Blocco di ametista', { tex: t('amethyst_block'), hardness: 1.5, sound: 'glass', cat: 'ores' });
   add('jack_o_lantern', 'Zucca di Halloween', { tex: { top: 'pumpkin_top', bottom: 'pumpkin_top', side: 'pumpkin_side', front: 'jack_o_lantern' }, facing: true, emit: 15, hardness: 1, sound: 'wood', cat: 'deco' });
 
+  const MASC = { bianca: 'bianco', azzurra: 'azzurro', gialla: 'giallo', grigia: 'grigio', rossa: 'rosso', nera: 'nero' };
+  const masc = (n) => MASC[n] || n;
+  MC.masc = masc;
   const CONCRETE = COLORS.map(([k, n, c]) => [k, n, c]);
-  for (const [k, n] of CONCRETE) add(k + '_concrete', 'Cemento ' + n.replace(/a$/, 'o').replace(/grigio chiaro/, 'grigio chiaro'), { tex: t(k + '_concrete'), hardness: 1.8, cat: 'color' });
+  for (const [k, n] of CONCRETE) add(k + '_concrete', 'Cemento ' + masc(n), { tex: t(k + '_concrete'), hardness: 1.8, cat: 'color' });
 
   add('oak_log_wood', 'Legno di quercia', { tex: t('oak_log'), hardness: 2, sound: 'wood', cat: 'build' });
   add('polished_andesite', 'Andesite levigata', { tex: t('polished_andesite'), hardness: 1.5, cat: 'build', blast: 6 });
@@ -242,10 +245,63 @@
     return [m === 1 ? [0, 0, 0, T, 1, 1] : m === 2 ? [1 - T, 0, 0, 1, 1, 1] : m === 3 ? [0, 0, 0, 1, 1, T] : [0, 0, 1 - T, 1, 1, 1]];
   };
   add('ladder', 'Scala a pioli', mdl(ladderModel, { tex: t('ladder'), hardness: 0.4, sound: 'wood', cat: 'deco', solid: false, ladder: true, cutout: true }));
-  add('chest', 'Baule', mdl(() => [[H, 0, H, 1 - H, 14 * H, 1 - H]], { tex: { top: 'chest_top', side: 'chest_side', bottom: 'chest_top', front: 'chest_front' }, facing: true, hardness: 2.5, sound: 'wood', cat: 'deco', solid: true, interact: 'chest' }));
-  add('lantern', 'Lanterna', mdl(() => [[5 * H, 0, 5 * H, 11 * H, 7 * H, 11 * H], [6 * H, 7 * H, 6 * H, 10 * H, 9 * H, 10 * H]], { tex: t('lantern'), hardness: 1, sound: 'metal', cat: 'deco', solid: true, emit: 15, emissive: true }));
+  // baule: base + coperchio + serratura sul lato frontale (meta&7 = faccia frontale)
+  const chestModel = (m) => {
+    const f = m & 7;
+    const L = { f: ['iron_block', 'iron_block', 'iron_block', 'iron_block', 'iron_block', 'iron_block'] };
+    const latch = f === 0 ? [1 - H, 7 * H, 7 * H, 1, 11 * H, 9 * H] : f === 1 ? [0, 7 * H, 7 * H, H, 11 * H, 9 * H] : f === 4 ? [7 * H, 7 * H, 1 - H, 9 * H, 11 * H, 1] : [7 * H, 7 * H, 0, 9 * H, 11 * H, H];
+    return [[H, 0, H, 1 - H, 10 * H, 1 - H], [H, 10 * H, H, 1 - H, 14 * H, 1 - H], latch.concat([L])];
+  };
+  add('chest', 'Baule', mdl(chestModel, { tex: { top: 'chest_top', side: 'chest_side', bottom: 'chest_top', front: 'chest_front' }, facing: true, hardness: 2.5, sound: 'wood', cat: 'deco', solid: true, interact: 'chest' }));
+  // lanterna: meta 1 = appesa al soffitto
+  add('lantern', 'Lanterna', mdl((m) => (m === 1
+    ? [[5 * H, 2 * H, 5 * H, 11 * H, 9 * H, 11 * H], [6 * H, 9 * H, 6 * H, 10 * H, 11 * H, 10 * H], [7.5 * H, 11 * H, 7 * H, 8.5 * H, 1, 9 * H, { f: ['iron_block', 'iron_block', 'iron_block', 'iron_block', 'iron_block', 'iron_block'] }]]
+    : [[5 * H, 0, 5 * H, 11 * H, 7 * H, 11 * H], [6 * H, 7 * H, 6 * H, 10 * H, 9 * H, 10 * H]]), { tex: t('lantern'), hardness: 1, sound: 'metal', cat: 'deco', solid: true, emit: 15, emissive: true }));
   add('hay_bale_slab', 'Lastra di fieno', mdl(slabModel, { texFrom: 'hay_block', hardness: 0.5, sound: 'grass', cat: 'deco', solid: true, creative: false }));
-  add('bed', 'Letto', mdl(() => [[0, 3 * H, 0, 1, 9 * H, 1], [0, 0, 0, 3 * H, 3 * H, 3 * H], [1 - 3 * H, 0, 0, 1, 3 * H, 3 * H], [0, 0, 1 - 3 * H, 3 * H, 3 * H, 1], [1 - 3 * H, 0, 1 - 3 * H, 1, 3 * H, 1]], { tex: { top: 'bed_top', side: 'bed_side', bottom: 'oak_planks' }, hardness: 0.2, sound: 'wool', cat: 'deco', solid: true, interact: 'bed' }));
+  // letti su due blocchi: meta&3 = direzione piedi->testa (0 -Z, 1 +X, 2 +Z, 3 -X), 4 = metà della testa
+  const rotBox = (b, k) => {
+    let [x0, y0, z0, x1, y1, z1] = b;
+    for (let i = 0; i < k; i++) { const nx0 = 1 - z1, nx1 = 1 - z0, nz0 = x0, nz1 = x1; x0 = nx0; x1 = nx1; z0 = nz0; z1 = nz1; }
+    return [x0, y0, z0, x1, y1, z1];
+  };
+  MC.rotBox = rotBox;
+  const bedModel = (color) => (m) => {
+    const head = !!(m & 4), k = ((m & 3) - 2 + 4) & 3;
+    const side = 'bed_side_' + color;
+    const mat = { f: [side, side, (head ? 'bed_head_' : 'bed_foot_') + color, 'oak_planks', side, side], r: (k + 2) & 3 };
+    const wood = { f: ['oak_planks', 'oak_planks', 'oak_planks', 'oak_planks', 'oak_planks', 'oak_planks'] };
+    const lz = head ? [13 * H, 1] : [0, 3 * H];
+    const out = [rotBox([0, 3 * H, 0, 1, 9 * H, 1], k).concat([mat])];
+    for (const [x0, x1] of [[0, 3 * H], [13 * H, 1]]) out.push(rotBox([x0, 0, lz[0], x1, 3 * H, lz[1]], k).concat([wood]));
+    return out;
+  };
+  const BED_COLORS = [['red', 'rosso'], ['white', 'bianco'], ['blue', 'blu'], ['green', 'verde'], ['yellow', 'giallo'], ['black', 'nero'], ['purple', 'viola'], ['pink', 'rosa']];
+  MC.BED_COLORS = BED_COLORS;
+  for (const [c, n] of BED_COLORS) {
+    add(c === 'red' ? 'bed' : c + '_bed', 'Letto ' + n, mdl(bedModel(c), { tex: { top: 'bed_head_' + c, side: 'bed_side_' + c, bottom: 'oak_planks' }, hardness: 0.2, sound: 'wool', cat: 'deco', solid: true, interact: 'bed', bed: c }));
+  }
+  // cancelletti: meta&3 direzione in cui guarda, 4 aperto
+  const gateModel = (m) => {
+    const open = m & 4, axisX = (m & 1) === 0; // guarda -Z/+Z => cancello lungo X
+    let boxes = [[0, 5 * H, 7 * H, 2 * H, 1, 9 * H], [14 * H, 5 * H, 7 * H, 1, 1, 9 * H]];
+    if (!open) boxes.push([2 * H, 6 * H, 7 * H, 14 * H, 9 * H, 9 * H], [2 * H, 12 * H, 7 * H, 14 * H, 15 * H, 9 * H], [6 * H, 9 * H, 7 * H, 10 * H, 12 * H, 9 * H]);
+    else {
+      const dz = (m & 3) === 2 || (m & 3) === 1 ? 1 : -1;
+      const z0 = dz > 0 ? 9 * H : 1 * H, z1 = dz > 0 ? 15 * H : 7 * H;
+      boxes.push([0, 6 * H, z0, 2 * H, 9 * H, z1], [0, 12 * H, z0, 2 * H, 15 * H, z1], [14 * H, 6 * H, z0, 1, 9 * H, z1], [14 * H, 12 * H, z0, 1, 15 * H, z1]);
+    }
+    return axisX ? boxes : boxes.map((b) => rotBox(b, 1));
+  };
+  add('oak_fence_gate', 'Cancelletto di quercia', mdl(gateModel, { texFrom: 'oak_planks', hardness: 2, sound: 'wood', cat: 'deco', solid: true, conn: 'fence', tall: true, gate: true, interact: 'gate' }));
+  add('spruce_fence_gate', 'Cancelletto di abete', mdl(gateModel, { texFrom: 'spruce_planks', hardness: 2, sound: 'wood', cat: 'deco', solid: true, conn: 'fence', tall: true, gate: true, interact: 'gate' }));
+  // botola: meta&3 lato del cardine, 4 aperta, 8 in alto
+  const trapModel = (m) => {
+    const T3 = 3 * H;
+    if (m & 4) { const f = m & 3; return [f === 0 ? [0, 0, 0, 1, 1, T3] : f === 1 ? [1 - T3, 0, 0, 1, 1, 1] : f === 2 ? [0, 0, 1 - T3, 1, 1, 1] : [0, 0, 0, T3, 1, 1]]; }
+    return [m & 8 ? [0, 1 - T3, 0, 1, 1, 1] : [0, 0, 0, 1, T3, 1]];
+  };
+  add('oak_trapdoor', 'Botola di quercia', mdl(trapModel, { tex: t('trapdoor'), hardness: 3, sound: 'wood', cat: 'deco', solid: true, interact: 'trapdoor', trapdoor: true }));
+  for (const [c, n] of MC.DYE_COLORS) add(c + '_carpet', 'Tappeto ' + masc(n), mdl(() => [[0, 0, 0, 1, H, 1]], { texFrom: c + '_wool', hardness: 0.1, sound: 'wool', cat: 'color', solid: true, carpet: true }));
 
   // ---------------- Oggetti (non si piazzano: ID da 256) ----------------
   nextId = 256;
@@ -330,7 +386,6 @@
   }
   dropFn('wheat', (meta) => (meta >= 7 ? [[byKey.wheat_item, 1], [byKey.wheat_seeds, rnd(1, 3)]] : [[byKey.wheat_seeds, 1]]));
   dropFn('oak_door', () => [[byKey.oak_door, 1]]);
-  dropFn('bed', () => [[byKey.bed, 1]]);
   MC.defs = defs;
 
   // Array di lookup veloci per il mesher e la luce

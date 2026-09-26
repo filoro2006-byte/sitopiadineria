@@ -337,11 +337,21 @@
     const layers = [side, side, top, bot, side, front];
     const l = d.emissive ? 1.1 : light;
     if (d.shape === 'model') {
+      const bed = !!d.bed;
+      const s2 = bed ? size * 0.6 : size;
       const S2 = mat4.create();
-      mat4.translate(S2, -h, 0, -h);
-      const sc = mat4.scale(mat4.create(), size, size, size);
+      mat4.translate(S2, -s2 / 2, 0, bed ? -s2 : -s2 / 2);
+      const sc = mat4.scale(mat4.create(), s2, s2, s2);
       const MM = mat4.mul(mat4.create(), M, mat4.mul(mat4.create(), S2, sc));
-      for (const b of d.model(0, d.conn ? 3 : 0)) bt.box(MM, b[0], b[1], b[2], b[3], b[4], b[5], layers, l, col, boxUVs(b));
+      let bs = d.model(d.facing ? 4 : 0, d.conn ? 3 : 0);
+      if (bed) bs = d.model(2, 0).concat(d.model(6, 0).map((b) => { const c2 = b.slice(); c2[2] += 1; c2[5] += 1; return c2; }));
+      for (const b of bs) {
+        const ov = b[6] && b[6].f;
+        const ls = ov ? ov.map((n, i) => (n ? T[n] : layers[i])) : layers;
+        const bb = b.slice(0, 6);
+        const uvb = [bb[0], bb[1], bb[2] - Math.floor(bb[2] === 1 ? 0 : bb[2]), bb[3], bb[4], bb[5] - Math.floor(bb[2] >= 1 ? 1 : 0)];
+        bt.box(MM, bb[0], bb[1], bb[2], bb[3], bb[4], bb[5], ls, l, col, boxUVs(uvb));
+      }
       return;
     }
     if (tintC && d.tint !== 2) {

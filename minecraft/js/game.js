@@ -9,7 +9,7 @@
 
   const DEFAULTS = {
     renderDist: 8, fov: 72, sens: 100, volume: 60, bright: 40, scale: 100,
-    fancyLeaves: true, clouds: true, bob: true, mobs: true, invert: false, weather: true, autoJump: true, shaders: true, shadows: true,
+    fancyLeaves: true, clouds: true, bob: true, mobs: true, invert: false, weather: true, autoJump: true, shaderLevel: 2, shadows: true,
   };
 
   const MOVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'KeyR']);
@@ -83,7 +83,8 @@
       let raw = null;
       try { raw = localStorage.getItem('blockcraft-settings'); s = JSON.parse(raw || '{}') || {}; } catch (e) { s = {}; }
       const base = Object.assign({}, DEFAULTS);
-      if (!raw && MC.Touch && MC.Touch.isTouchDevice()) { base.renderDist = 5; base.scale = 75; base.fancyLeaves = false; base.shaders = false; base.shadows = false; }
+      if (!raw && MC.Touch && MC.Touch.isTouchDevice()) { base.renderDist = 5; base.scale = 75; base.fancyLeaves = false; base.shaderLevel = 0; base.shadows = false; }
+      if (s.shaders !== undefined && s.shaderLevel === undefined) s.shaderLevel = s.shaders ? 2 : 0;
       return Object.assign(base, s);
     }
     saveSettings() {
@@ -708,7 +709,12 @@
       if (id === B.ice && this.player.mode === 'survival' && w.getBlock(x, y - 1, z) !== 0) w.setBlock(x, y, z, B.water, 0);
       else w.setBlock(x, y, z, 0, 0);
       // porte e letti: rompi anche l'altra metà
-      if (def.door) { const oy = meta & 8 ? y - 1 : y + 1; if (w.getBlock(x, oy, z) === id) w.setBlock(x, oy, z, 0, 0); if (meta & 8) { /* il drop arriva dalla metà inferiore */ } }
+      if (def.door) { const oy = meta & 8 ? y - 1 : y + 1; if (w.getBlock(x, oy, z) === id) w.setBlock(x, oy, z, 0, 0); }
+      if (def.bed) {
+        const DV = [[0, -1], [1, 0], [0, 1], [-1, 0]][meta & 3], sgn = meta & 4 ? -1 : 1;
+        const px = x + DV[0] * sgn, pz = z + DV[1] * sgn;
+        if (w.getBlock(px, y, pz) === id) w.setBlock(px, y, pz, 0, 0, { noUpdate: true });
+      }
       w.urgent = false;
       if (def.interact === 'chest') this._dropChest(x, y, z);
       this.entities.breakParticles(id, x, y, z);
@@ -748,6 +754,19 @@
         if (def.interact === 'chest') { this.swing = 1; this.openChest(hit.x, hit.y, hit.z); return; }
         if (def.interact === 'door') { this._toggleDoor(hit.x, hit.y, hit.z); this.swing = 1; return; }
         if (def.interact === 'bed') { this._sleep(hit.x, hit.y, hit.z); return; }
+        if (def.interact === 'gate' || def.interact === 'trapdoor') {
+          const m = w.getMeta(hit.x, hit.y, hit.z) ^ 4;
+          let mm = m;
+          if (def.gate && (m & 4)) {
+            // si apre allontanandosi dal giocatore
+            const d = p.dir();
+            const face = Math.abs(d[0]) > Math.abs(d[2]) ? (d[0] > 0 ? 1 : 3) : (d[2] > 0 ? 2 : 0);
+            if (((face ^ (m & 3)) & 1) === 0) mm = (m & ~3) | face;
+          }
+          w.urgent = true; w.setBlock(hit.x, hit.y, hit.z, hit.id, mm, { noUpdate: true }); w.urgent = false;
+          this.audio.door(!!(mm & 4)); this.swing = 1;
+          return;
+        }
         if (hit.id === B.tnt && (!hd || hd.igniter || !MC.blocks[held.id] || hd.item)) {
           w.urgent = true; w.setBlock(hit.x, hit.y, hit.z, 0, 0); w.urgent = false;
           this.entities.primeTNT(hit.x, hit.y, hit.z, 4);
@@ -913,6 +932,19 @@
         if (ty + 1 >= WH || !REPLACEABLE[w.getBlock(tx, ty + 1, tz)] || !SOLID[w.getBlock(tx, ty - 1, tz)]) return false;
         meta = dirIdx;
       }
+      if (hd.gate) meta = dirIdx;
+      if (hd.trapdoor) meta = ((dirIdx + 2) & 3) | (n[1] === -1 || (n[1] === 0 && upperHalf) ? 8 : 0);
+      if (id === B.lantern && n[1] === -1) meta = 1;
+      if (hd.carpet && !SOLID[w.getBlock(tx, ty - 1, tz)]) return false;
+      let bedHead = null;
+      if (hd.bed) {
+        const DV = [[0, -1], [1, 0], [0, 1], [-1, 0]][dirIdx];
+        const hx = tx + DV[0], hz = tz + DV[1];
+        if (!REPLACEABLE[w.getBlock(hx, ty, hz)] || FLUID[w.getBlock(hx, ty, hz)]) return false;
+        if (!SOLID[w.getBlock(tx, ty - 1, tz)] || !SOLID[w.getBlock(hx, ty - 1, hz)]) return false;
+        meta = dirIdx;
+        bedHead = [hx, ty, hz];
+      }
       if (hd.support && !hd.support(w.getBlock(tx, ty - 1, tz))) return false;
       if (hd.shape === 'cactus') {
         for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (SOLID[w.getBlock(tx + dx, ty, tz + dz)]) return false;
@@ -934,6 +966,7 @@
       w.urgent = true;
       const ok = w.setBlock(tx, ty, tz, id, meta);
       if (ok && hd.door) w.setBlock(tx, ty + 1, tz, id, meta | 8);
+      if (ok && bedHead) w.setBlock(bedHead[0], bedHead[1], bedHead[2], id, meta | 4);
       w.urgent = false;
       if (ok) this.audio.place(id);
       return ok;
@@ -1176,7 +1209,8 @@
         fov: this.settings.fov * p.fovMod,
         brightness: this.settings.bright / 100,
       };
-      r.fx.shaders = !!this.settings.shaders;
+      r.fx.shaders = this.settings.shaderLevel > 0;
+      r.fx.ultra = this.settings.shaderLevel > 1;
       r.fx.shadows = !!this.settings.shadows;
       r.fx.shadowSize = this.touchMode ? 1024 : 2048;
       r.setupCamera(cam);
@@ -1210,6 +1244,7 @@
         gl.disable(gl.BLEND);
       }
 
+      r.captureOpaque();
       r.drawTranslucent(env, cam, tsec);
       if (this.settings.clouds) r.drawClouds(env, cam, tsec);
       this._renderWeather(env, cam, tsec);
