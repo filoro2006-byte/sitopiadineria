@@ -111,6 +111,7 @@
     // ---------------- Input ----------------
     _bindInput() {
       window.addEventListener('keydown', (e) => this._keyDown(e));
+      document.addEventListener('mousemove', (e) => { this.mouseX = e.clientX; this.mouseY = e.clientY; });
       window.addEventListener('keyup', (e) => { this.keys.delete(e.code); if (e.code === 'KeyW') this.sprintTap = false; });
       window.addEventListener('blur', () => { this.keys.clear(); this.mouse.left = this.mouse.right = false; });
       this.canvas.addEventListener('mousedown', (e) => this._mouseDown(e));
@@ -219,6 +220,50 @@
       if (e.button === 0) { this.mouse.left = true; this.breakCd = 0; this.attackCd = Math.min(this.attackCd, 0); }
       if (e.button === 2) { this.mouse.right = true; this.useCd = 0; }
       if (e.button === 1) this.pickBlock();
+    }
+
+    // anteprima del personaggio nell'inventario, nella pausa e nel menu (la testa segue il mouse)
+    _renderPreviews(tsec) {
+      let id = null;
+      if (this.state === 'menu') id = 'menu-player';
+      else if (this.state === 'paused') id = 'pause-player';
+      else if (this.state === 'inventory' && !this.ui.chest && !this.ui.enchant) id = 'inv-player';
+      if (!id) return;
+      const cv = document.getElementById(id);
+      if (!cv || !cv.offsetParent) return;
+      const rect = cv.getBoundingClientRect();
+      if (rect.width < 8 || rect.height < 8) return;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const W = Math.round(rect.width * dpr), H = Math.round(rect.height * dpr);
+      if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; cv._img = null; }
+      const D = MC.mobs.DEFS.player;
+      const pm = this._pvMob || (this._pvMob = { type: 'player', D, M: D, isPlayer: true, parts: MC.mobs.models.player, skin: 1000 + MC.mobs.skinIndex['player:default'], x: 0, y: 0, z: 0, walk: 0, walkAmt: 0, hurt: 0, dead: 0, swing: 0, fullBright: 1, bodyYaw: Math.PI, headYaw: 0, headPitch: 0 });
+      const cx = rect.left + rect.width / 2, cy = rect.top + rect.height * 0.2;
+      const mx = this.mouseX === undefined ? cx : this.mouseX, my = this.mouseY === undefined ? cy : this.mouseY;
+      const ax = Math.atan((mx - cx) / 40), ay = Math.atan((my - cy) / 40);
+      pm.bodyYaw = Math.PI + ax * 0.25;
+      pm.headYaw = ax * 0.4;
+      pm.headPitch = -ay * 0.3;
+      pm.walk = tsec * 0.6; pm.walkAmt = 0.06;
+      const inv = this.inventory;
+      pm.held = this.world ? inv.held() : null;
+      pm.armor = inv.armor.map((x) => (x ? x.id : 0));
+      pm.armorEnch = inv.armor.map((x) => !!(x && x.ench));
+      const r = this.renderer;
+      const env = { fogCol: [0, 0, 0], fog: [1000, 2000] };
+      const proj = mat4.perspective(mat4.create(), (30 * Math.PI) / 180, W / H, 0.1, 50);
+      const view = mat4.translate(mat4.create(), 0, -0.95, -5.1);
+      const vp = mat4.mul(mat4.create(), proj, view);
+      const px = r.renderToPixels(W, H, () => {
+        this.entities.renderMobs(r.batch, env, { x: 0, y: 0, z: 0 }, this.world, tsec, [pm]);
+        r.beginEnt(env, vp);
+        r.batch.flush();
+      });
+      const ctx = cv.getContext('2d');
+      if (!cv._img) cv._img = ctx.createImageData(W, H);
+      const d = cv._img.data, row = W * 4;
+      for (let y = 0; y < H; y++) d.set(px.subarray((H - 1 - y) * row, (H - y) * row), y * row);
+      ctx.putImageData(cv._img, 0, 0);
     }
 
     cycleView() {
@@ -518,10 +563,10 @@
       this.frame++;
       this._fpsN++; this._fpsT += dt;
       if (this._fpsT >= 1) { this.fps = Math.round(this._fpsN / this._fpsT); this._fpsN = 0; this._fpsT = 0; }
-      if (!this.world) return;
+      if (!this.world) { if (this.state === 'menu') this._renderPreviews(tsec); return; }
       if (this.state === 'loading') { this._loading(); return; }
       this._update(dt);
-      if (this.world && this.state !== 'loading') this._render(dt, tsec);
+      if (this.world && this.state !== 'loading') { this._render(dt, tsec); this._renderPreviews(tsec); }
     }
 
     _loading() {
@@ -961,7 +1006,8 @@
             const bt = this._breakTime(def);
             b.p += dt / bt.t;
             b.t -= dt;
-            if (b.t <= 0) { b.t = 0.22; this.audio.hit(hit.id); this.entities.hitParticles(hit.id, hit.x, hit.y, hit.z, hit.n); this.swing = 1; }
+            if (b.t <= 0) { b.t = 0.22; this.audio.hit(hit.id); this.entities.hitParticles(hit.id, hit.x, hit.y, hit.z, hit.n); }
+            if (this.swing <= 0.02) this.swing = 1; // oscillazione continua mentre si scava
             if (b.p >= 1) {
               this.breakBlock(hit.x, hit.y, hit.z, bt.canHarvest);
               if (hd && hd.tool && def.hardness > 0) this.inventory.wearHeld(hd.tool.type === def.tool ? 1 : 2);
@@ -1219,6 +1265,7 @@
       if (hd.item) return;
       if (this._place(held.id, hit)) {
         this.swing = 1;
+        this.equip = Math.max(this.equip, 0.12);
         if (p.mode === 'survival') this.inventory.consumeHeld(1);
       }
     }
@@ -1788,45 +1835,77 @@
       const proj = mat4.perspective(mat4.create(), (70 * Math.PI) / 180, aspect, 0.01, 10);
       const l = MC.lightAt(w, p.x, p.y + 1.6, p.z, env);
       const held = this.inventory.held();
-      const s = this.swing;
-      const sp = Math.sin((1 - s) * Math.PI) * (s > 0 ? 1 : 0);
+      const PI = Math.PI, D = PI / 180;
+      // avanzamento dell'oscillazione 0..1 (curve come nell'originale)
+      const sw = this.swing > 0 ? 1 - this.swing : 0;
+      const sq = Math.sqrt(sw);
       const bobA = this.settings.bob ? p.bobAmt : 0;
-      const hx = Math.sin(p.bob * Math.PI) * 0.03 * bobA, hy = -Math.abs(Math.cos(p.bob * Math.PI)) * 0.03 * bobA;
-      const M = mat4.create();
-      const T = mat4.create();
-      const drop = this.equip * 0.4;
-      mat4.translate(M, 0.56 + hx - sp * 0.25, -0.58 + hy - drop + sp * 0.15, -0.9 - sp * 0.2);
-      mat4.rotY(T, -0.72 + sp * 0.5); mat4.mul(M, M, T);
-      mat4.rotX(T, -sp * 0.9); mat4.mul(M, M, T);
-      mat4.rotZ(T, sp * 0.3); mat4.mul(M, M, T);
+      const hx = Math.sin(p.bob * PI) * 0.03 * bobA, hy = -Math.abs(Math.cos(p.bob * PI)) * 0.035 * bobA;
+      // la mano segue la visuale con un leggero ritardo
+      const lag = this.handLag || (this.handLag = { yaw: p.yaw, pitch: p.pitch });
+      let dyaw = p.yaw - lag.yaw;
+      while (dyaw > PI) dyaw -= 2 * PI; while (dyaw < -PI) dyaw += 2 * PI;
+      lag.yaw += dyaw * Math.min(1, dt * 16); lag.pitch += (p.pitch - lag.pitch) * Math.min(1, dt * 16);
+      const ly = Math.max(-0.5, Math.min(0.5, dyaw)), lp = Math.max(-0.5, Math.min(0.5, p.pitch - lag.pitch));
+      const equip = this.equip;
+      const M = mat4.create(), T = mat4.create();
+      const mul = () => mat4.mul(M, M, T);
+      mat4.rotX(T, lp * 0.25); mul();
+      mat4.rotY(T, ly * 0.25); mul();
       const hEnv = { fogCol: env.fogCol, fog: [100, 200] };
       if (held) {
         const d = MC.blocks[held.id];
         const flat = d.shape === 'cross' || d.shape === 'torch' || d.shape === 'item' || d.shape === 'crop' || d.ladder || d.door || d.conn === 'pane';
+        const eatOrBow = this.eating || (d.bow && this.bowCharge > 0);
+        const s1 = eatOrBow ? 0 : sq, s0 = eatOrBow ? 0 : sw;
+        mat4.translate(T, (-0.4 * Math.sin(s1 * PI)) * 0.6 + hx, (0.2 * Math.sin(s1 * 2 * PI)) * 0.6 + hy, -0.2 * Math.sin(s0 * PI) * 0.6); mul();
+        mat4.translate(T, 0.56, -0.58 - equip * 0.5, -0.9); mul();
+        mat4.rotY(T, (45 - Math.sin(s0 * s0 * PI) * 20) * D); mul();
+        mat4.rotZ(T, -Math.sin(s1 * PI) * 20 * D); mul();
+        mat4.rotX(T, -Math.sin(s1 * PI) * 80 * D); mul();
+        mat4.rotY(T, -45 * D); mul();
+        mat4.rotY(T, -0.72); mul();
         if (this.eating) {
           const e = this.eating.t;
-          mat4.translate(T, -0.35, 0.18 + Math.abs(Math.sin(e * 14)) * 0.04, 0.15); mat4.mul(M, M, T);
-          mat4.rotY(T, 0.9); mat4.mul(M, M, T);
+          const k = Math.min(1, e * 4);
+          mat4.translate(T, -0.38 * k, (0.2 + Math.abs(Math.sin(e * 14)) * 0.05) * k, 0.18 * k); mul();
+          mat4.rotY(T, 0.9 * k); mul();
+          mat4.rotX(T, 0.3 * k); mul();
         }
         if (d.bow && this.bowCharge > 0) {
-          mat4.translate(T, -0.3, 0.1, 0.1); mat4.mul(M, M, T);
-          mat4.rotY(T, 0.6); mat4.mul(M, M, T);
-          mat4.rotZ(T, -0.4); mat4.mul(M, M, T);
-          mat4.translate(T, 0, 0, this.bowCharge * 0.12); mat4.mul(M, M, T);
+          const c = this.bowCharge;
+          mat4.translate(T, -0.3, 0.1 + Math.sin(performance.now() / 40) * 0.004 * c, 0.1); mul();
+          mat4.rotY(T, 0.6); mul();
+          mat4.rotZ(T, -0.4); mul();
+          mat4.translate(T, 0, 0, c * 0.12); mul();
         }
+        const glint = held.ench ? MC.glintCol(performance.now() / 1000) : null;
         if (flat) {
-          mat4.rotY(T, 0.72 - (d.tool || d.bow ? 0.1 : 0)); mat4.mul(M, M, T);
-          if (d.tool) { mat4.rotZ(T, 0.25); mat4.mul(M, M, T); mat4.translate(T, 0, -0.05, 0); mat4.mul(M, M, T); }
-          MC.drawItemModel(r.batch, M, held.id, d.tool ? 0.62 : 0.52, l, held.ench ? MC.glintCol(performance.now() / 1000) : null);
+          mat4.rotY(T, 0.72 - (d.tool || d.bow ? 0.1 : 0)); mul();
+          if (d.tool) { mat4.rotZ(T, 0.25); mul(); mat4.translate(T, 0, -0.05, 0); mul(); }
+          MC.drawItemModel(r.batch, M, held.id, d.tool ? 0.6 : 0.5, l, glint);
         } else {
-          mat4.translate(T, 0, -0.1, 0); mat4.mul(M, M, T);
-          MC.drawItemModel(r.batch, M, held.id, 0.42, l, held.ench ? MC.glintCol(performance.now() / 1000) : null);
+          mat4.translate(T, 0, -0.08, 0); mul();
+          MC.drawItemModel(r.batch, M, held.id, 0.4, l, glint);
         }
       } else {
-        // braccio
-        mat4.rotX(T, 1.1); mat4.mul(M, M, T);
-        const L = MC.textures.index.white;
-        r.batch.box(M, -0.1, -0.7, -0.1, 0.1, 0.1, 0.1, L, l, [0.93, 0.72, 0.58, 1]);
+        // braccio nudo con la pelle del personaggio (pugno come nell'originale)
+        mat4.translate(T, -0.3 * Math.sin(sq * PI) * 0.6 + hx, 0.4 * Math.sin(sq * 2 * PI) * 0.5 + hy, -0.4 * Math.sin(sw * PI) * 0.6); mul();
+        mat4.translate(T, 0.78, -0.8 - equip * 0.5, -0.55); mul();
+        mat4.rotY(T, 45 * D); mul();
+        mat4.rotY(T, Math.sin(sq * PI) * 30 * D); mul();
+        mat4.rotZ(T, -Math.sin(sw * sw * PI) * 20 * D); mul();
+        mat4.rotX(T, Math.sin(sq * PI) * 25 * D); mul();
+        mat4.rotY(T, -45 * D + 0.42); mul();
+        mat4.rotX(T, 1.95); mul();
+        mat4.rotY(T, 0.5); mul();
+        const arm = MC.mobs.models.player[3];
+        const skin = 1000 + MC.mobs.skinIndex['player:default'];
+        r.batch.box(M, -0.11, -0.78, -0.11, 0.11, 0.1, 0.11, skin, l, [1, 1, 1, 1], arm.uvs);
+        const a = this.inventory.armor[1];
+        if (a && MC.blocks[a.id] && MC.blocks[a.id].armor) {
+          r.batch.box(M, -0.13, -0.3, -0.13, 0.13, 0.12, 0.13, MC.textures.index['armor_' + MC.blocks[a.id].armor.mat], l, a.ench ? MC.glintCol(performance.now() / 1000) : [1, 1, 1, 1]);
+        }
       }
       r.beginEnt(hEnv, mat4.mul(mat4.create(), proj, mat4.create()));
       gl.disable(gl.CULL_FACE);

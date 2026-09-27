@@ -27,7 +27,8 @@ poi apri `http://localhost:8080`. Su GitHub Pages l'indirizzo è `.../minecraft/
 - **Armature** di pelle, oro, maglia, ferro e diamante: riducono i danni con la formula originale, si consumano, si indossano col clic destro o dagli slot dell'inventario e si vedono sul personaggio.
 - **Esperienza e incantesimi**: sfere di esperienza da mostri e minerali, barra dei livelli, tavolo per incantesimi con librerie e lapislazzuli, 15 incantesimi (Affilatezza, Efficienza, Fortuna, Tocco di velluto, Protezione, Indistruttibilità, Potenza, Fiamma, Infinità...), bagliore viola sugli oggetti incantati e libro fluttuante sul tavolo.
 - **Nuove creature**: lupi e gatti da addomesticare (osso e merluzzo, clic destro per farli sedere), Enderman che si teletrasportano e si arrabbiano se li guardi, merluzzi, piglin zombificati, ghast con palle di fuoco (colpiscile per rimandarle indietro), blaze e cubi di magma che si dividono. Zombie e scheletri possono avere l'armatura. Perle di ender, farina d'ossa e ampolle di esperienza.
-- **Visuale in terza persona** (F5 o V).
+- **Visuale in terza persona** (F5 o V) e **anteprima del personaggio** con armatura nell'inventario, nella pausa e nel menu principale (la testa segue il mouse).
+- **Animazioni della mano come nell'originale**: pugno e colpo con le curve di Minecraft, oscillazione continua mentre si scava, braccio con la pelle del personaggio e mano che segue la visuale con un leggero ritardo.
 - **Salvataggio automatico** in IndexedDB, con più mondi (Nether e animali domestici compresi).
 - **Comandi**: `/time`, `/gamemode`, `/tp`, `/give`, `/spawn`, `/weather`, `/seed`, `/locate`, `/dim nether|overworld`, `/xp`, `/enchant`, `/kill`.
 - **Controlli touch** per iPhone e iPad.

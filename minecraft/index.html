@@ -70,6 +70,7 @@
       <button class="btn" id="btn-controls">Comandi e aiuto</button>
       <button class="btn" id="btn-settings-main">Impostazioni</button>
     </div>
+    <canvas id="menu-player" class="player-prev menu"></canvas>
     <div class="footer-note">Clone voxel in WebGL2 · funziona su Safari, Brave, Chrome, Firefox</div>
     <div id="storage-warn" class="footer-warn hidden">Salvataggio non disponibile in questa finestra (modalità privata?): i mondi non verranno conservati.</div>
   </div>
@@ -100,6 +101,7 @@
 
   <!-- Pausa -->
   <div id="screen-pause" class="screen dim hidden">
+    <canvas id="pause-player" class="player-prev pause"></canvas>
     <h2 class="screen-title">Gioco in pausa</h2>
     <div class="menu-col">
       <button class="btn" id="btn-resume">Torna al gioco</button>
@@ -204,7 +206,7 @@
         <div class="inv-cols">
           <div class="armor-col">
             <div class="inv-label" title="Armatura">&nbsp;</div>
-            <div id="inv-armor" class="grid armor-grid"></div>
+            <div class="armor-wrap"><div id="inv-armor" class="grid armor-grid"></div><canvas id="inv-player" class="player-prev inv"></canvas></div>
           </div>
           <div>
             <div class="inv-label">Inventario</div>

@@ -1422,6 +1422,38 @@ void main(){ o = u_col; }`;
       gl.activeTexture(gl.TEXTURE0);
     }
 
+    // disegna fuori schermo (per l'anteprima del personaggio) e restituisce i pixel RGBA
+    renderToPixels(W, H, draw) {
+      const gl = this.gl;
+      let P = this.prevTarget;
+      if (!P || P.w !== W || P.h !== H) {
+        if (P) { gl.deleteFramebuffer(P.fbo); gl.deleteTexture(P.tex); gl.deleteRenderbuffer(P.rb); }
+        P = this.prevTarget = { w: W, h: H, buf: new Uint8Array(W * H * 4) };
+        P.tex = this._tex(W, H, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, gl.NEAREST);
+        P.fbo = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, P.fbo);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, P.tex, 0);
+        P.rb = gl.createRenderbuffer();
+        gl.bindRenderbuffer(gl.RENDERBUFFER, P.rb);
+        gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, W, H);
+        gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, P.rb);
+      }
+      gl.bindFramebuffer(gl.FRAMEBUFFER, P.fbo);
+      gl.viewport(0, 0, W, H);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      gl.enable(gl.DEPTH_TEST);
+      gl.depthFunc(gl.LEQUAL);
+      gl.disable(gl.BLEND);
+      gl.disable(gl.CULL_FACE);
+      draw();
+      gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, P.buf);
+      gl.enable(gl.CULL_FACE);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+      return P.buf;
+    }
+
     drawSelection(box, cam) {
       const gl = this.gl;
       const e = 0.003;

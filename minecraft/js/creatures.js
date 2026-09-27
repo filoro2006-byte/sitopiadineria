@@ -558,14 +558,14 @@
 
   // ---------------- Disegno ----------------
   const ARMOR_DRAW = { head: [0, 1.05], body: [1, 0.9], arm: [1, 0.75], leg: [2, 0.45] };
-  E.renderMobs = function (bt, env, cam, world, time) {
+  E.renderMobs = function (bt, env, cam, world, time, only) {
     const px = 1 / 16;
     const T = MC.textures.index;
-    const list = this.playerMob ? this.mobs.concat([this.playerMob]) : this.mobs;
+    const list = only || (this.playerMob ? this.mobs.concat([this.playerMob]) : this.mobs);
     for (const m of list) {
       const dcam = Math.hypot(m.x - cam.x, m.z - cam.z);
       if (dcam > 96) continue;
-      const l = MC.lightAt(world, m.x, m.y + Math.min(1.2, m.D.h * 0.6), m.z, env);
+      const l = m.fullBright || MC.lightAt(world, m.x, m.y + Math.min(1.2, m.D.h * 0.6), m.z, env);
       const hurt = m.hurt > 0 || (m.dead && m.dead < 90);
       const flash = m.type === 'creeper' && m.fuse > 0 && Math.floor(m.fuse * 8) % 2 === 0;
       const jit = m.jitter ? 0.03 : 0;
