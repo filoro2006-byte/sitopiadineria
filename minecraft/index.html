@@ -19,9 +19,10 @@
     <div id="eat-bar" class="eat-bar hidden"><i></i></div>
     <div id="bottom">
       <div id="bars">
-        <div id="hearts"></div>
+        <div class="bars-left"><div id="armor-bar"></div><div id="hearts"></div></div>
         <div class="bars-right"><div id="bubbles"></div><div id="hunger"></div></div>
       </div>
+      <div id="xp" class="hidden"><div id="xp-fill"></div><span id="xp-level"></span></div>
       <div id="hotbar"></div>
     </div>
   </div>
@@ -31,6 +32,7 @@
     <div id="t-stick"><div id="t-knob"></div></div>
     <div class="t-top">
       <button class="t-btn small" id="t-drop" aria-label="Getta">⇣</button>
+      <button class="t-btn small" id="t-view" aria-label="Visuale">◉</button>
       <button class="t-btn small" id="t-inv" aria-label="Inventario">▦</button>
       <button class="t-btn small" id="t-pause" aria-label="Pausa">❚❚</button>
     </div>
@@ -45,6 +47,7 @@
   <div id="fx-water" class="fx"></div>
   <div id="fx-lava" class="fx"></div>
   <div id="fx-hurt" class="fx"></div>
+  <div id="fx-portal" class="fx"></div>
   <div id="fx-vignette" class="fx"></div>
 
   <!-- Clicca per giocare -->
@@ -156,10 +159,13 @@
       <div><b>Q</b> getta l'oggetto</div>
       <div><b>T</b> o <b>/</b> comandi chat</div>
       <div><b>F3</b> info di debug · <b>F1</b> nascondi HUD</div>
+      <div><b>F5</b> o <b>V</b> visuale in terza persona</div>
       <div><b>ESC</b> pausa</div>
+      <div><b>Clic destro</b> con un'armatura in mano: indossala</div>
+      <div><b>Portale</b>: cornice di ossidiana 4×5 accesa con l'acciarino</div>
       <div><b>Mac</b>: clic con due dita = clic destro</div>
     </div>
-    <div class="cmd-help">Comandi: <code>/time set day|night|noon|&lt;n&gt;</code> · <code>/gamemode creative|survival</code> · <code>/tp x y z</code> · <code>/seed</code> · <code>/weather clear|rain</code> · <code>/give &lt;blocco&gt; [n]</code> · <code>/spawn &lt;pig|cow|sheep|chicken|zombie|skeleton|creeper|spider|villager|iron_golem&gt;</code> · <code>/locate</code> (villaggio più vicino) · <code>/kill</code></div>
+    <div class="cmd-help">Comandi: <code>/time set day|night|noon|&lt;n&gt;</code> · <code>/gamemode creative|survival</code> · <code>/tp x y z</code> · <code>/seed</code> · <code>/weather clear|rain</code> · <code>/give &lt;blocco&gt; [n]</code> · <code>/spawn &lt;creatura&gt;</code> (es. wolf, cat, enderman, ghast, blaze...) · <code>/locate</code> (villaggio o fortezza più vicina) · <code>/dim nether|overworld</code> · <code>/xp &lt;livelli&gt;</code> · <code>/enchant &lt;nome&gt; [livello]</code> · <code>/kill</code></div>
     <div class="menu-col"><button class="btn" id="btn-controls-back">Fatto</button></div>
   </div>
 
@@ -187,8 +193,19 @@
         <div class="inv-label" id="chest-label">Baule</div>
         <div id="chest-grid" class="grid g9"></div>
       </div>
+      <div id="inv-enchant" class="hidden">
+        <div class="inv-label">Tavolo per incantesimi <span id="ench-shelves"></span></div>
+        <div class="ench-wrap">
+          <div id="ench-slots" class="grid ench-slots"></div>
+          <div id="ench-opts" class="ench-opts"></div>
+        </div>
+      </div>
       <div id="inv-survival">
         <div class="inv-cols">
+          <div class="armor-col">
+            <div class="inv-label" title="Armatura">&nbsp;</div>
+            <div id="inv-armor" class="grid armor-grid"></div>
+          </div>
           <div>
             <div class="inv-label">Inventario</div>
             <div id="inv-main" class="grid g9"></div>
@@ -241,6 +258,7 @@
   <script src="js/audio.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/inventory.js"></script>
+  <script src="js/enchant.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/touch.js"></script>
   <script src="js/game.js"></script>

@@ -1153,6 +1153,254 @@
       });
     }
 
+    // ---------------- Nether ----------------
+    tex('soul_sand', (p) => {
+      noiseTex(p, [[62, 46, 36], [76, 58, 45], [88, 67, 52], [101, 78, 61]], { w: [0.35, 0.3, 0.35] });
+      // volti delle anime
+      for (let i = 0; i < 3; i++) {
+        const x = 1 + p.ri(11), y = 1 + p.ri(10);
+        plot(p, [[x, y], [x + 3, y], [x + 1, y + 2], [x + 2, y + 2]], [40, 28, 22]);
+        plot(p, [[x, y + 1], [x + 3, y + 1]], [48, 34, 26]);
+      }
+    });
+    tex('soul_soil', (p) => {
+      noiseTex(p, [[58, 44, 35], [72, 55, 43], [84, 64, 50], [96, 74, 58]], { w: [0.3, 0.35, 0.35] });
+      for (let i = 0; i < 10; i++) p.set(p.ri(S), p.ri(S), [44, 32, 26]);
+    });
+    const nbr = (p, base, mortar) => {
+      p.each((x, y) => {
+        const row = y >> 2, off = row % 2 ? 4 : 0;
+        const lx = (x + off) & 7, ly = y & 3;
+        let f = 0.88 + p.r() * 0.14;
+        let c = sh(base, f);
+        if (ly === 3 || lx === 7) c = sh(mortar, 0.9 + p.r() * 0.15);
+        else if (ly === 0) c = sh(base, 1.12);
+        p.set(x, y, c);
+      });
+    };
+    tex('nether_bricks', (p) => nbr(p, [68, 34, 40], [30, 14, 18]));
+    tex('red_nether_bricks', (p) => nbr(p, [115, 10, 12], [55, 4, 6]));
+    tex('nether_quartz_ore', (p) => {
+      p.copy(cache.netherrack);
+      for (let i = 0; i < 7; i++) {
+        const x = 1 + p.ri(13), y = 1 + p.ri(13);
+        plot(p, [[x, y], [x + 1, y], [x + 1, y + 1]], [236, 228, 218]);
+        p.set(x, y + 1, [205, 195, 185]);
+      }
+    });
+    tex('nether_gold_ore', (p) => {
+      p.copy(cache.netherrack);
+      for (let i = 0; i < 9; i++) { const x = p.ri(15), y = p.ri(15); p.set(x, y, [255, 214, 60]); if (p.r() < 0.6) p.set(x + 1, y, [220, 170, 30]); }
+    });
+    tex('magma', (p) => {
+      const n = p.tnoise(4);
+      p.each((x, y) => {
+        const v = n(x, y) + p.r() * 0.25;
+        p.set(x, y, v > 0.72 ? mixc([255, 150, 20], [255, 220, 90], p.r()) : v > 0.6 ? [200, 70, 10] : sh([90, 30, 12], 0.8 + p.r() * 0.3));
+      });
+    });
+    tex('basalt_side', (p) => {
+      p.each((x, y) => {
+        let f = 0.85 + p.r() * 0.18;
+        if (x % 4 === 0) f *= 0.8;
+        p.set(x, y, sh([80, 80, 86], f));
+      });
+    });
+    tex('basalt_top', (p) => {
+      p.each((x, y) => {
+        const d = Math.max(Math.abs(x - 7.5), Math.abs(y - 7.5));
+        p.set(x, y, sh([86, 86, 92], 0.8 + (Math.floor(d) % 3) * 0.1 + p.r() * 0.08));
+      });
+    });
+    tex('polished_basalt_side', (p) => {
+      p.each((x, y) => { let f = 0.92 + p.r() * 0.06; if (x === 0 || x === 15) f *= 0.75; if (x === 7) f *= 0.85; p.set(x, y, sh([96, 96, 102], f)); });
+    });
+    tex('polished_basalt_top', (p) => {
+      p.each((x, y) => { const e = x === 0 || y === 0 || x === 15 || y === 15; p.set(x, y, sh([100, 100, 106], e ? 0.7 : 0.95 + p.r() * 0.06)); });
+    });
+    tex('blackstone', (p) => {
+      noiseTex(p, [[26, 22, 28], [36, 31, 38], [46, 40, 48], [58, 52, 60]], { w: [0.35, 0.35, 0.3] });
+      for (let i = 0; i < 6; i++) { const x = p.ri(S), y = p.ri(S); p.set(x, y, [70, 64, 72]); }
+    });
+    tex('blackstone_top', (p) => {
+      p.each((x, y) => { const d = Math.max(Math.abs(x - 7.5), Math.abs(y - 7.5)); p.set(x, y, sh([42, 37, 44], 0.8 + (Math.floor(d) % 2) * 0.15 + p.r() * 0.1)); });
+    });
+    const nylTop = (p, c) => {
+      p.each((x, y) => { const v = p.r(); p.set(x, y, v < 0.15 ? sh(c, 1.25) : v < 0.35 ? sh(c, 0.75) : sh(c, 0.92 + p.r() * 0.12)); });
+    };
+    const nylSide = (p, c) => {
+      p.copy(cache.netherrack);
+      const hs = [];
+      for (let x = 0; x < S; x++) hs.push(2 + p.ri(4));
+      p.each((x, y) => { if (y < hs[x]) p.set(x, y, sh(c, 0.85 + p.r() * 0.25)); });
+    };
+    tex('crimson_nylium', (p) => nylTop(p, [150, 25, 30]));
+    tex('crimson_nylium_side', (p) => nylSide(p, [150, 25, 30]));
+    tex('warped_nylium', (p) => nylTop(p, [30, 130, 120]));
+    tex('warped_nylium_side', (p) => nylSide(p, [30, 130, 120]));
+    const stemSide = (p, c, glow) => {
+      const cols = [];
+      for (let x = 0; x < S; x++) cols.push(0.8 + p.r() * 0.3);
+      p.each((x, y) => {
+        let f = cols[x] * (0.9 + p.r() * 0.15);
+        let cc = sh(c, f);
+        if ((x * 5 + y * 3) % 13 === 0 || (p.r() < 0.05)) cc = glow;
+        p.set(x, y, cc);
+      });
+    };
+    tex('crimson_stem', (p) => stemSide(p, [95, 30, 45], [200, 60, 60]));
+    tex('warped_stem', (p) => stemSide(p, [55, 70, 80], [40, 200, 170]));
+    tex('crimson_stem_top', (p) => logTop(p, [95, 30, 45], [140, 70, 80], [120, 50, 60]));
+    tex('warped_stem_top', (p) => logTop(p, [55, 70, 80], [60, 140, 130], [45, 110, 105]));
+    tex('nether_wart_block', (p) => noiseTex(p, [[95, 5, 5], [118, 10, 10], [138, 18, 18], [160, 30, 25]], { w: [0.35, 0.3, 0.35] }));
+    tex('warped_wart_block', (p) => noiseTex(p, [[10, 90, 85], [20, 115, 108], [30, 135, 125], [50, 160, 145]], { w: [0.35, 0.3, 0.35] }));
+    tex('shroomlight', (p) => {
+      p.each((x, y) => { const v = p.r(); p.set(x, y, v < 0.2 ? [255, 230, 150] : v < 0.6 ? [245, 160, 70] : [220, 110, 40]); });
+      for (let i = 0; i < 6; i++) { const x = p.ri(14), y = p.ri(14); plot(p, [[x, y], [x + 1, y], [x, y + 1], [x + 1, y + 1]], [255, 245, 200]); }
+    });
+    tex('crimson_planks', (p) => planks(p, [110, 50, 75]));
+    tex('warped_planks', (p) => planks(p, [45, 115, 110]));
+    tex('quartz_bricks', (p) => { bricksTex(p, [236, 230, 222], [200, 192, 184], 8, 8); });
+    const fungus = (p, cap, dot, stemC) => {
+      p.clear();
+      stem(p, 7, 8, 15, stemC); stem(p, 8, 9, 15, sh(stemC, 0.85));
+      for (let y = 3; y < 9; y++) {
+        const w = y < 5 ? 2 + (y - 3) * 2 : 6 - (y - 5);
+        for (let x = 8 - w; x < 8 + w; x++) p.set(x, y, sh(cap, 0.85 + p.r() * 0.25));
+      }
+      for (let i = 0; i < 4; i++) p.set(4 + p.ri(8), 4 + p.ri(3), dot);
+    };
+    tex('crimson_fungus', (p) => fungus(p, [170, 30, 30], [255, 180, 60], [200, 150, 110]));
+    tex('warped_fungus', (p) => fungus(p, [30, 150, 130], [255, 150, 40], [200, 150, 110]));
+    const roots = (p, c) => {
+      p.clear();
+      for (let k = 0; k < 7; k++) {
+        let x = 2 + p.ri(12), y = 15;
+        const top = 3 + p.ri(8);
+        while (y > top) { p.set(x, y, sh(c, 0.75 + p.r() * 0.4)); y--; if (p.r() < 0.3) x += p.r() < 0.5 ? -1 : 1; x = Math.max(0, Math.min(15, x)); }
+      }
+    };
+    tex('crimson_roots', (p) => roots(p, [160, 30, 40]));
+    tex('warped_roots', (p) => roots(p, [30, 150, 140]));
+    for (let st = 0; st < 3; st++) {
+      tex('nether_wart_' + st, (p) => {
+        p.clear();
+        const n = 3 + st * 2;
+        for (let k = 0; k < n; k++) {
+          const x = 2 + p.ri(12), top = 14 - (3 + st * 3) - p.ri(3);
+          for (let y = 15; y >= top; y--) p.set(x, y, sh([120, 20, 25], 0.8 + p.r() * 0.3));
+          plot(p, [[x - 1, top], [x + 1, top], [x, top - 1]], [170, 30, 35]);
+        }
+      });
+    }
+    tex('portal', (p) => {
+      p.each((x, y) => {
+        const a = Math.sin(x * 0.9 + Math.cos(y * 0.6) * 2) + Math.cos(y * 0.8 + Math.sin(x * 0.5) * 2);
+        const v = a * 0.25 + 0.5 + p.r() * 0.15;
+        p.set(x, y, mixc([70, 10, 150], [190, 90, 255], Math.max(0, Math.min(1, v))), 170 + v * 60);
+      });
+    });
+    tex('enchant_top', (p) => {
+      p.each((x, y) => {
+        const edge = x === 0 || y === 0 || x === 15 || y === 15;
+        const ring = Math.abs(Math.max(Math.abs(x - 7.5), Math.abs(y - 7.5)) - 5) < 0.6;
+        p.set(x, y, edge ? [40, 20, 30] : ring ? [150, 30, 30] : sh([30, 25, 45], 0.8 + p.r() * 0.3));
+      });
+      for (let i = 0; i < 4; i++) p.set(5 + p.ri(6), 5 + p.ri(6), [60, 220, 200]);
+    });
+    tex('enchant_side', (p) => {
+      p.copy(cache.obsidian);
+      for (let x = 0; x < S; x++) for (let y = 0; y < 4; y++) p.set(x, y, y === 3 ? [100, 20, 20] : sh([170, 35, 35], 0.85 + p.r() * 0.2));
+      for (let i = 0; i < 3; i++) p.set(2 + p.ri(12), 6 + p.ri(8), [70, 210, 200]);
+    });
+
+    // oggetti del Nether e vari
+    tex('quartz', (p) => gem(p, [236, 228, 218], [190, 180, 170], [255, 255, 255]));
+    tex('gold_nugget', (p) => { p.clear(); blob(p, 8, 9, 3.5, 3, [[200, 150, 20], [240, 200, 50], [255, 230, 90], [255, 255, 170]], 0.2); outline(p, [110, 70, 5]); });
+    tex('glowstone_dust', (p) => { p.clear(); for (let i = 0; i < 45; i++) { const a = p.r() * 6.28, r = p.r() * 5; p.set(Math.round(8 + Math.cos(a) * r), Math.round(9 + Math.sin(a) * r * 0.7), mixc([230, 170, 60], [255, 240, 150], p.r())); } });
+    tex('nether_brick', (p) => ingot(p, [80, 36, 44], [50, 20, 26], [110, 55, 64]));
+    tex('blaze_rod', (p) => { p.clear(); for (let i = 0; i < 11; i++) { p.set(3 + i, 13 - i, [255, 200, 40]); p.set(4 + i, 13 - i, [230, 140, 20]); } outline(p, [120, 60, 0]); });
+    tex('blaze_powder', (p) => { p.clear(); for (let i = 0; i < 45; i++) { const a = p.r() * 6.28, r = p.r() * 5; p.set(Math.round(8 + Math.cos(a) * r), Math.round(9 + Math.sin(a) * r * 0.7), mixc([230, 120, 10], [255, 220, 60], p.r())); } });
+    tex('ghast_tear', (p) => { p.clear(); blob(p, 8, 10, 3, 3.5, [[170, 200, 210], [210, 235, 240], [240, 250, 255], [255, 255, 255]], 0); plot(p, [[8, 5], [8, 6], [7, 7], [9, 7]], [220, 240, 245]); outline(p, [90, 120, 130]); });
+    tex('magma_cream', (p) => { p.clear(); blob(p, 8, 8.5, 5, 4.5, [[120, 40, 0], [200, 90, 10], [240, 150, 20], [255, 220, 80]], 0.2); outline(p, [60, 20, 0]); });
+    tex('ender_pearl', (p) => { p.clear(); blob(p, 8, 8, 5, 5, [[10, 60, 50], [20, 100, 85], [40, 140, 120], [110, 210, 190]], 0); p.set(6, 6, [200, 255, 240]); outline(p, [5, 30, 25]); });
+    tex('bone_meal', (p) => { p.clear(); for (let i = 0; i < 45; i++) { const a = p.r() * 6.28, r = p.r() * 5; const g = 220 + p.r() * 35; p.set(Math.round(8 + Math.cos(a) * r), Math.round(9 + Math.sin(a) * r * 0.7), [g, g, g - 10]); } });
+    tex('paper', (p) => { p.clear(); for (let y = 3; y < 13; y++) for (let x = 3; x < 13; x++) p.set(x + (y > 9 ? 1 : 0), y, sh([240, 240, 230], 0.95 + p.r() * 0.05)); for (let x = 4; x < 12; x++) { p.set(x, 5, [200, 200, 190]); p.set(x, 8, [200, 200, 190]); } outline(p, [140, 140, 130]); });
+    tex('book', (p) => {
+      p.clear();
+      for (let y = 3; y < 14; y++) for (let x = 3; x < 13; x++) p.set(x, y, x < 5 ? [90, 40, 20] : sh([150, 70, 40], 0.9 + p.r() * 0.1));
+      for (let y = 4; y < 13; y++) p.set(12, y, [235, 230, 210]);
+      for (let x = 6; x < 11; x++) p.set(x, 6, [200, 170, 60]);
+      outline(p, [50, 20, 10]);
+    });
+    tex('nether_wart_item', (p) => { p.clear(); blob(p, 8, 9, 4.5, 4.5, [[90, 10, 15], [130, 20, 25], [170, 30, 35], [200, 60, 60]], 0.3); outline(p, [50, 5, 8]); });
+    const fish = (p, c, dk, belly) => {
+      p.clear();
+      for (let x = 2; x < 13; x++) {
+        const h = Math.round(Math.sin(((x - 2) / 10) * Math.PI) * 3.2);
+        for (let y = 8 - h; y <= 8 + h; y++) p.set(x, y, y > 8 ? belly : c);
+      }
+      plot(p, [[13, 6], [14, 5], [13, 10], [14, 11], [13, 7], [13, 9], [14, 6], [14, 10]], dk);
+      p.set(4, 7, [20, 20, 20]);
+      outline(p, sh(dk, 0.5));
+    };
+    tex('cod', (p) => fish(p, [190, 165, 120], [140, 115, 80], [225, 210, 180]));
+    tex('cooked_cod', (p) => fish(p, [200, 140, 80], [140, 90, 50], [230, 190, 140]));
+    tex('experience_bottle', (p) => {
+      p.clear();
+      for (let y = 5; y < 15; y++) { const w = y < 7 ? 1 : 4; for (let x = 8 - w; x < 8 + w; x++) p.set(x, y, y < 7 ? [200, 220, 230] : mixc([120, 220, 60], [230, 255, 120], p.r())); }
+      plot(p, [[7, 3], [8, 3], [7, 4], [8, 4]], [150, 110, 60]);
+      outline(p, [40, 70, 30]);
+    });
+    tex('xp_orb', (p) => { p.clear(); blob(p, 8, 8, 5, 5, [[80, 170, 20], [150, 220, 40], [210, 250, 80], [250, 255, 200]], 0); });
+    tex('fireball', (p) => { p.each((x, y) => { const d = Math.hypot(x - 7.5, y - 7.5) / 8; p.set(x, y, mixc([255, 240, 150], [200, 50, 0], Math.min(1, d + p.r() * 0.3))); }); });
+    // armature
+    const AC = { leather: [[160, 100, 55], [110, 65, 35], [195, 135, 80]], golden: [[250, 215, 60], [200, 150, 20], [255, 250, 150]], chainmail: [[150, 150, 155], [90, 90, 95], [200, 200, 205]], iron: [[216, 216, 216], [150, 150, 150], [255, 255, 255]], diamond: [[80, 230, 215], [30, 160, 150], [200, 255, 250]] };
+    const ARMOR_SHAPES = {
+      helmet: ['................', '................', '................', '....########....', '...##########...', '..############..', '..############..', '..####....####..', '..###......###..', '..##........##..', '................', '................', '................', '................', '................', '................'],
+      chestplate: ['................', '..####....####..', '.######..######.', '.##############.', '.##############.', '..############..', '...##########...', '....########....', '....########....', '....########....', '....########....', '....########....', '....########....', '.....######.....', '................', '................'],
+      leggings: ['................', '................', '...##########...', '...##########...', '...##########...', '...####..####...', '...###....###...', '...###....###...', '...###....###...', '...###....###...', '...###....###...', '...###....###...', '...###....###...', '................', '................', '................'],
+      boots: ['................', '................', '................', '................', '................', '................', '...###....###...', '...###....###...', '...###....###...', '...###....###...', '..####....####..', '.#####....#####.', '.#####....#####.', '................', '................', '................'],
+    };
+    for (const m in AC) {
+      const [c, dk, lt] = AC[m];
+      for (const pc in ARMOR_SHAPES) {
+        tex(m + '_' + pc, (p) => {
+          p.clear();
+          const rows = ARMOR_SHAPES[pc];
+          for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+            if (rows[y][x] !== '#') continue;
+            const up = y === 0 || rows[y - 1][x] !== '#', left = x === 0 || rows[y][x - 1] !== '#';
+            const dn = y === 15 || rows[y + 1][x] !== '#', right = x === 15 || rows[y][x + 1] !== '#';
+            let col = up || left ? lt : dn || right ? dk : sh(c, 0.92 + p.r() * 0.12);
+            if (m === 'chainmail' && (x + y) % 2 === 0 && !up && !dn) col = sh(dk, 0.8);
+            p.set(x, y, col);
+          }
+          outline(p, sh(dk, 0.45));
+        });
+      }
+    }
+
+    // superfici delle armature indossate
+    for (const [m, c] of [['leather', [150, 92, 50]], ['golden', [245, 205, 60]], ['chainmail', [150, 150, 158]], ['iron', [212, 212, 212]], ['diamond', [80, 220, 205]]]) {
+      tex('armor_' + m, (p) => {
+        p.each((x, y) => {
+          let f = 0.9 + p.r() * 0.12;
+          if (x === 0 || y === 0) f *= 1.18;
+          if (x === 15 || y === 15) f *= 0.72;
+          if (m === 'chainmail' && (x + y) % 2 === 0) { p.set(x, y, sh(c, 0.55), 255); return; }
+          if (m === 'leather' && (x * 3 + y * 5) % 11 === 0) f *= 0.85;
+          if ((m === 'iron' || m === 'golden' || m === 'diamond') && (x === 4 || x === 11) && y > 2 && y < 13) f *= 0.85;
+          p.set(x, y, sh(c, f));
+        });
+      });
+      // fronte dell'elmo: visiera aperta sul viso
+      tex('armor_' + m + '_face', (p) => {
+        p.copy(cache['armor_' + m]);
+        for (let y = 5; y < 16; y++) for (let x = 2; x < 14; x++) if (y < 13 || (x > 4 && x < 11)) p.set(x, y, [0, 0, 0], 0);
+      });
+    }
+
     // Crepe di rottura (10 stadi)
     const crackRng = mulberry32(12345);
     const pts = [];

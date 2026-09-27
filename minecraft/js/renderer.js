@@ -112,7 +112,7 @@ void main(){
   const LIGHT_FN = `
 uniform float u_day;
 uniform vec3 u_skyCol;
-uniform float u_bright;
+uniform vec3 u_amb;
 uniform float u_gamma;
 uniform float u_flicker;
 uniform int u_shadows;
@@ -157,7 +157,7 @@ vec4 lightOf(float sky, float blk, vec3 n, vec3 sc, int kind, float dist){
   }
   float lb = lcurve(blk) * u_flicker;
   vec3 l = max(u_skyCol * ls, vec3(1.0, 0.86, 0.66) * lb);
-  l = max(l, vec3(u_bright));
+  l = max(l, u_amb);
   return vec4(l, sun);
 }`;
 
@@ -203,6 +203,10 @@ void main(){
   }
   if ((f & 16) != 0) {
     uv = uv + vec2(sin(u_time * 0.25 + uv.y * 3.0) * 0.06, u_time * 0.015);
+  }
+  if ((f & 64) != 0) {
+    uv = uv + vec2(sin(u_time * 0.9 + uv.y * 6.2832) * 0.07, u_time * 0.09);
+    uv.x += cos(uv.y * 12.566 + u_time * 1.7) * 0.03;
   }
   vec4 t = texture(u_tex, vec3(uv, v_uvl.z));
   int mode = int(v_tint.w + 0.5);
@@ -1139,7 +1143,14 @@ void main(){ o = u_col; }`;
     }
 
     // ---------------- Ambiente ----------------
-    computeEnv(timeTicks, underwater, inLava, renderDist, weather) {
+    computeEnv(timeTicks, underwater, inLava, renderDist, weather, nether) {
+      if (nether) {
+        const fc = nether.slice ? nether : [0.2, 0.03, 0.03];
+        const far = renderDist * 16 - 10;
+        let fogCol = fc, fog = [Math.min(12, far * 0.2), Math.min(far, 110)];
+        if (inLava) { fogCol = [0.8, 0.25, 0.02]; fog = [0, 3]; }
+        return { sun: [0, 1, 0], dayF: 0, zenith: fc, horizon: fc, sunsetAmt: 0, sunsetCol: [0, 0, 0], fogCol, fog, day: 0, skyCol: [1, 1, 1], night: 0, starRot: 0, underwater: false, rain: 0, lightDir: [0, 1, 0], direct: 0, isMoon: false, nether: true, noSky: true, amb: 0.3 };
+      }
       const t = (timeTicks % 24000) / 24000;
       const a = t * Math.PI * 2;
       const sunY = Math.sin(a);
@@ -1199,7 +1210,7 @@ void main(){ o = u_col; }`;
       gl.uniform1f(pr.u.u_sunsetAmt, env.sunsetAmt * (1 - env.rain));
       gl.uniform1f(pr.u.u_night, env.night * (1 - env.rain));
       gl.uniform1f(pr.u.u_starRot, env.starRot);
-      gl.uniform1f(pr.u.u_underwater, env.underwater ? 1 : 0);
+      gl.uniform1f(pr.u.u_underwater, env.underwater || env.noSky ? 1 : 0);
       gl.uniform3fv(pr.u.u_fogCol, env.fogCol);
       gl.disable(gl.DEPTH_TEST);
       gl.depthMask(false);
@@ -1221,7 +1232,9 @@ void main(){ o = u_col; }`;
       gl.uniform2fv(pr.u.u_fog, env.fog);
       gl.uniform1f(pr.u.u_day, env.day);
       gl.uniform3fv(pr.u.u_skyCol, env.skyCol);
-      gl.uniform1f(pr.u.u_bright, 0.03 + (cam.brightness || 0) * 0.05);
+      const ab = 0.03 + (cam.brightness || 0) * 0.05;
+      if (env.nether) gl.uniform3f(pr.u.u_amb, ab + 0.26, ab + 0.17, ab + 0.14);
+      else gl.uniform3f(pr.u.u_amb, ab, ab, ab);
       gl.uniform1f(pr.u.u_gamma, 0.15 + (cam.brightness || 0) * 0.85);
       gl.uniform1f(pr.u.u_flicker, 0.96 + Math.sin(time * 9.1) * 0.02 + Math.sin(time * 23.7) * 0.02);
       gl.activeTexture(gl.TEXTURE0);

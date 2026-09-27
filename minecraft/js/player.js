@@ -200,6 +200,8 @@
     damage(amount, cause, kx, kz) {
       if (this.mode !== 'survival' || this.dead || amount <= 0) return;
       if (this.hurtTime > 0.45) return;
+      if (this.reduceDamage) amount = this.reduceDamage(amount, cause);
+      if (amount <= 0) { this.hurtTime = 0.5; return; }
       this.health = Math.max(0, this.health - amount);
       this.hurtTime = 0.5;
       if (kx !== undefined) { this.vx += kx * 6; this.vz += kz * 6; this.vy = Math.max(this.vy, 4.5); }
@@ -251,6 +253,10 @@
       else if (this.sneaking) speed = 1.31;
       else if (this.sprinting) speed = 5.612;
       else speed = 4.317;
+      const under = world.getBlock(Math.floor(this.x), Math.floor(this.y - 0.05), Math.floor(this.z));
+      const ud = MC.blocks[under];
+      if (this.onGround && !this.flying && ud && ud.slow) speed *= ud.slow;
+      this.underHot = this.onGround && ud && ud.hot;
 
       const tvx = mx * speed, tvz = mz * speed;
       let k;
@@ -359,7 +365,7 @@
       if (this.mode !== 'survival') { this.health = 20; this.air = 300; this.food = 20; return; }
       // aria
       if (this.eyeInWater) {
-        this.air -= dt * 20;
+        if (!this.respiration || Math.random() < 1 / (this.respiration + 1)) this.air -= dt * 20;
         if (this.air <= 0) {
           this.air = 0;
           this.drownTimer += dt;
@@ -388,6 +394,18 @@
       if (touch) {
         this.cactusTimer += dt;
         if (this.cactusTimer >= 0.5) { this.cactusTimer = 0; this.damage(1, 'cactus'); }
+      }
+      // magma
+      if (this.underHot && !this.sneaking) {
+        this.magmaTimer = (this.magmaTimer || 0) + dt;
+        if (this.magmaTimer >= 0.5) { this.magmaTimer = 0; this.damage(1, 'magma'); }
+      }
+      // fuoco addosso
+      if (this.fire > 0) {
+        this.fire -= dt;
+        if (this.inWater) this.fire = 0;
+        this.fireTimer = (this.fireTimer || 0) + dt;
+        if (this.fireTimer >= 1) { this.fireTimer = 0; this.damage(1, 'fire'); }
       }
       // fame
       if (this.hungerFx > 0) this.hungerFx -= dt;

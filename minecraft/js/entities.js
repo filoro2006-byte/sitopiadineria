@@ -18,7 +18,7 @@
     const g = env.gamma !== undefined ? env.gamma : 0.45;
     const ls = lcurve(sky, g) * env.day;
     const lb = lcurve(blk, g);
-    return Math.max(0.06, ls, lb);
+    return Math.max(env.amb || 0.06, ls, lb);
   }
   MC.lcurve = lcurve;
   MC.lightAt = lightAt;
@@ -35,11 +35,39 @@
       this.tnts = [];
       this.mobs = [];
       this.arrows = [];
+      this.orbs = [];
+      this.projectiles = [];
       this.spawnTimer = 0;
       this.rng = MC.util.mulberry32((Math.random() * 1e9) | 0);
     }
 
-    clear() { this.particles.length = 0; this.items.length = 0; this.tnts.length = 0; this.mobs.length = 0; this.arrows.length = 0; }
+    clear() { this.particles.length = 0; this.items.length = 0; this.tnts.length = 0; this.mobs.length = 0; this.arrows.length = 0; this.orbs.length = 0; this.projectiles.length = 0; }
+
+    // ---------------- Sfere di esperienza ----------------
+    spawnXp(x, y, z, amount) {
+      amount = Math.round(amount);
+      while (amount > 0) {
+        const v = amount >= 17 ? 17 : amount >= 7 ? 7 : amount >= 3 ? 3 : 1;
+        amount -= v;
+        this.orbs.push({ x, y, z, vx: (this.rng() - 0.5) * 3, vy: 2 + this.rng() * 3, vz: (this.rng() - 0.5) * 3, val: v, age: 0, onGround: false, delay: 0.5 });
+      }
+      if (this.orbs.length > 300) this.orbs.splice(0, this.orbs.length - 300);
+    }
+    _updateOrbs(dt, world, player) {
+      for (let i = this.orbs.length - 1; i >= 0; i--) {
+        const o = this.orbs[i];
+        o.age += dt; o.delay -= dt;
+        if (o.age > 300 || o.y < -64) { this.orbs.splice(i, 1); continue; }
+        const dx = player.x - o.x, dy = player.y + 0.9 - o.y, dz = player.z - o.z, d = Math.hypot(dx, dy, dz);
+        if (!player.dead && o.delay <= 0 && d < 8) {
+          if (d < 1.1) { this.game.addXp(o.val); this.game.audio.orb && this.game.audio.orb(); this.orbs.splice(i, 1); continue; }
+          const k = (1 - d / 8) * (1 - d / 8) * 60 * dt;
+          o.vx += dx / d * k; o.vy += dy / d * k + 28 * dt * 0.6; o.vz += dz / d * k;
+        }
+        this._physics(o, 0.2, 0.2, dt, world);
+        if (o.onGround) { o.vx *= Math.max(0, 1 - dt * 6); o.vz *= Math.max(0, 1 - dt * 6); }
+      }
+    }
 
     // ---------------- Particelle ----------------
     breakParticles(id, x, y, z, count) {
@@ -97,9 +125,10 @@
     }
 
     // ---------------- Oggetti a terra ----------------
-    dropItem(id, count, x, y, z, vx, vy, vz, delay) {
+    dropItem(id, count, x, y, z, vx, vy, vz, delay, extra) {
       if (!id) return;
       this.items.push({
+        dmg: extra && extra.dmg ? extra.dmg : 0, ench: extra && extra.ench ? extra.ench : null,
         id, count, x, y, z,
         vx: vx !== undefined ? vx : (this.rng() - 0.5) * 2.5,
         vy: vy !== undefined ? vy : 3 + this.rng() * 1.5,
@@ -117,7 +146,9 @@
     _physics(e, w, h, dt, world) {
       if (!world.isReady(e.x, e.z)) return;
       const inW = FLUID[world.getBlock(Math.floor(e.x), Math.floor(e.y + 0.2), Math.floor(e.z))];
-      if (inW) {
+      if (e.noGrav || (e.fish && inW === 1)) {
+        e.vy *= Math.max(0, 1 - dt * 2);
+      } else if (inW) {
         e.vy += (inW === 1 ? 6 : 2) * dt; // galleggiamento
         e.vy *= Math.max(0, 1 - dt * 3);
         if (e.vy > 2.5) e.vy = 2.5;
@@ -164,7 +195,7 @@
         if (it.delay <= 0 && !player.dead && dist < 1.8) {
           // attrazione
           if (dist < 0.9) {
-            const left = this.game.inventory.add(it.id, it.count);
+            const left = this.game.inventory.add(it.id, it.count, it.dmg, it.ench);
             if (left < it.count) this.game.audio.pop();
             if (left === 0) { its.splice(i, 1); continue; }
             it.count = left;
@@ -179,7 +210,7 @@
         if ((i & 7) === ((this.game.frame | 0) & 7)) {
           for (let j = 0; j < its.length; j++) {
             const o = its[j];
-            if (o === it || o.id !== it.id || o.count + it.count > 64) continue;
+            if (o === it || o.id !== it.id || o.count + it.count > MC.stackOf(it.id) || o.dmg || it.dmg || o.ench || it.ench) continue;
             if (Math.abs(o.x - it.x) < 0.8 && Math.abs(o.y - it.y) < 0.6 && Math.abs(o.z - it.z) < 0.8) {
               o.count += it.count; its.splice(i, 1); break;
             }
@@ -202,6 +233,8 @@
 
       this.updateMobs(dt, world, player, env);
       this.updateArrows(dt, world, player);
+      this.updateProjectiles(dt, world, player);
+      this._updateOrbs(dt, world, player);
     }
 
     // ---------------- Disegno ----------------
@@ -210,6 +243,7 @@
       const T = MC.textures.index;
       this.renderMobs(bt, env, cam, world, time);
       this.renderArrows(bt, env, cam, world);
+      this.renderProjectiles(bt, env, cam, world, time);
       // oggetti a terra
       for (const it of this.items) {
         const l = lightAt(world, it.x, it.y + 0.2, it.z, env);
@@ -219,7 +253,29 @@
           const M = mat4.translate(mat4.create(), it.x - cam.x + k * 0.07, it.y - cam.y + bob + k * 0.05, it.z - cam.z + k * 0.05);
           mat4.rotY(tmpA, it.rot);
           mat4.mul(M, M, tmpA);
-          drawItemModel(bt, M, it.id, 0.25, l);
+          drawItemModel(bt, M, it.id, 0.25, l, it.ench ? MC.glintCol(time) : null);
+        }
+      }
+      // libro fluttuante sopra i tavoli per incantesimi
+      const now = performance.now();
+      if (!this._tablesT || now - this._tablesT > 1000) {
+        this._tablesT = now;
+        this._tables = [];
+        const px = Math.floor(cam.x), py = Math.floor(cam.y), pz = Math.floor(cam.z);
+        for (let y = py - 5; y <= py + 5; y++) for (let z = pz - 10; z <= pz + 10; z++) for (let x = px - 10; x <= px + 10; x++) if (world.getBlock(x, y, z) === B.enchanting_table) this._tables.push([x, y, z]);
+      }
+      for (const [tx, ty, tz] of this._tables) {
+        const dx = cam.x - (tx + 0.5), dz = cam.z - (tz + 0.5), d = Math.hypot(dx, dz);
+        const open = d < 3.5 ? 0.95 + Math.sin(time * 2) * 0.15 : 0.08;
+        const l = Math.max(0.7, lightAt(world, tx + 0.5, ty + 1, tz + 0.5, env));
+        const M = mat4.translate(mat4.create(), tx + 0.5 - cam.x, ty + 1.05 + Math.sin(time * 1.6 + tx) * 0.06 - cam.y, tz + 0.5 - cam.z);
+        mat4.rotY(tmpA, Math.atan2(dx, dz)); mat4.mul(M, M, tmpA);
+        const W = T.white, cover = [0.5, 0.25, 0.12, 1], page = [0.95, 0.92, 0.82, 1];
+        for (const sg of [1, -1]) {
+          const S = mat4.create();
+          mat4.rotY(tmpA, sg * open); mat4.mul(S, M, tmpA);
+          bt.box(S, -0.012, -0.17, 0, 0.012, 0.17, 0.24 * 1, W, l, cover);
+          bt.box(S, -sg * 0.02 - 0.008, -0.15, 0.005, -sg * 0.02 + 0.008, 0.15, 0.22, W, l, page);
         }
       }
       // TNT innescata
@@ -240,7 +296,7 @@
       renderer.gl.enable(renderer.gl.CULL_FACE);
 
       // particelle (billboard)
-      if (this.particles.length) {
+      if (this.particles.length || this.orbs.length) {
         const yaw = cam.yaw, pitch = cam.pitch;
         const rx = Math.cos(yaw), rz = -Math.sin(yaw);
         const ux = Math.sin(yaw) * Math.sin(pitch), uy = Math.cos(pitch), uz = Math.cos(yaw) * Math.sin(pitch);
@@ -256,6 +312,19 @@
             x - rx * s + ux * s, y + uy * s, z - rz * s + uz * s,
           ];
           bt.quad(pts, p.u, p.v, p.u + 0.25, p.v + 0.25, p.layer, p.tint[0] * l, p.tint[1] * l, p.tint[2] * l, a);
+        }
+        const OL = T.xp_orb;
+        for (const o of this.orbs) {
+          const s = 0.08 + Math.min(3, o.val) * 0.025;
+          const x = o.x - cam.x, y = o.y + 0.15 + Math.sin(o.age * 4) * 0.05 - cam.y, z = o.z - cam.z;
+          const pulse = 0.75 + Math.sin(o.age * 6) * 0.25;
+          const pts = [
+            x - rx * s - ux * s, y - uy * s, z - rz * s - uz * s,
+            x + rx * s - ux * s, y - uy * s, z + rz * s - uz * s,
+            x + rx * s + ux * s, y + uy * s, z + rz * s + uz * s,
+            x - rx * s + ux * s, y + uy * s, z - rz * s + uz * s,
+          ];
+          bt.quad(pts, 0, 0, 1, 1, OL, 0.8 + pulse * 0.4, 1.2, 0.3 + pulse * 0.3, 1);
         }
         const gl = renderer.gl;
         gl.enable(gl.BLEND);

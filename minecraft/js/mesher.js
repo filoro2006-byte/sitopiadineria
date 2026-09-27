@@ -94,6 +94,7 @@
     }
     DOOR_TOP = T.door_top;
     for (let i = 0; i < 8; i++) WHEAT[i] = T['wheat_' + i];
+    for (const d of MC.defs) if (d.stages) STAGES[d.id] = d.stages.map((n) => T[n]);
   }
 
   function fill(world, cx, sy, cz) {
@@ -391,7 +392,8 @@
   function model(d, id, p, x, y, z, ci, grass, foliage) {
     const meta = pm[p];
     const boxes = d.model(meta, d.conn ? connAt(id, x, y, z) : 0);
-    const bld = d.cutout || d.pass === 'translucent' ? solidB : solidB;
+    const bld = d.pass === 'translucent' ? transB : solidB;
+    const mflags = (d.emissive ? 8 : 0) | (d.portal ? 64 : 0);
     const ownSky = pl[p] >> 4, ownBlk = pl[p] & 15;
     tint[3] = 0;
     for (const b of boxes) {
@@ -400,7 +402,7 @@
         const onEdge = (f === 0 && b[3] >= 1) || (f === 1 && b[0] <= 0) || (f === 2 && b[4] >= 1) || (f === 3 && b[1] <= 0) || (f === 4 && b[5] >= 1) || (f === 5 && b[2] <= 0);
         const np = p + (n[1] * P + n[2]) * P + n[0];
         if (onEdge && OPAQUE[pb[np]]) continue;
-        if (onEdge && pb[np] === id && d.conn === 'pane') continue;
+        if (onEdge && pb[np] === id && (d.conn === 'pane' || d.portal)) continue;
         let layer = FACE_LAYER[id * 6 + f];
         if (d.facing && f === (meta & 7) && f !== 2 && f !== 3) layer = FRONT_LAYER[id];
         if (d.door && (meta & 8)) layer = DOOR_TOP;
@@ -423,14 +425,14 @@
           else if (f === 2 || f === 3) { u = px; v = f === 2 ? 1 - pz : pz; }
           else { u = f === 4 ? px : 1 - px; v = py; }
           for (let q = 0; q < uvRot; q++) { const tu = u; u = 1 - v; v = tu; }
-          bld.v(x + px, y + py, z + pz, layer, u, v, d.emissive ? 8 : 0, shade, skv, blv, 255, 255, 255, 0, f);
+          bld.v(x + px, y + py, z + pz, layer, u, v, mflags, shade, skv, blv, 255, 255, 255, 0, f);
         }
       }
     }
   }
   function crop(d, id, p, x, y, z) {
     const st = pm[p] & 7;
-    const layer = WHEAT[st];
+    const layer = d.stages ? STAGES[id][Math.min(st, STAGES[id].length - 1)] : WHEAT[st];
     const sk = Math.round((pl[p] >> 4) * 17), bl = Math.round((pl[p] & 15) * 17);
     solidB.ensure(32);
     const shade = 230;
@@ -452,6 +454,7 @@
   }
   let DOOR_TOP = 0;
   const WHEAT = [];
+  const STAGES = {};
 
   MC.mesher = { meshSection, STRIDE, POS };
 })();

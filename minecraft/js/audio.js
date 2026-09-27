@@ -37,7 +37,7 @@
     _ok() { return this.enabled && this.ctx && this.ctx.state === 'running' && this.volume > 0; }
 
     _noise(dur, type, freq, q, vol, attack, pitchEnd) {
-      if (!this._ok()) return;
+      if (!this._ok() || !(vol > 0.0005)) return;
       const c = this.ctx, t = c.currentTime;
       const src = c.createBufferSource();
       src.buffer = this.noiseBuf;
@@ -55,7 +55,7 @@
     }
 
     _tone(freq, dur, type, vol, endFreq, delay) {
-      if (!this._ok()) return;
+      if (!this._ok() || !(vol > 0.0005)) return;
       const c = this.ctx, t = c.currentTime + (delay || 0);
       const o = c.createOscillator();
       o.type = type || 'sine';
@@ -143,8 +143,37 @@
         case 'creeper': this._noise(0.25, 'lowpass', 800, 1, 0.12 * vol); break;
         case 'villager': this._tone(220 * r, 0.12, 'sawtooth', 0.06 * vol, 170 * r); this._tone(200 * r, 0.18, 'sawtooth', 0.05 * vol, 240 * r, 0.12); break;
         case 'iron_golem': this._noise(0.3, 'lowpass', 300, 1, 0.3 * vol); this._tone(70, 0.3, 'sine', 0.2 * vol, 50); break;
+        case 'wolf':
+          if (hurt) { this._tone(900 * r, 0.25, 'sawtooth', 0.06 * vol, 500 * r); }
+          else { this._tone(520 * r, 0.1, 'sawtooth', 0.06 * vol, 380 * r); this._tone(500 * r, 0.12, 'sawtooth', 0.06 * vol, 340 * r, 0.16); }
+          break;
+        case 'cat': this._tone(700 * r, 0.12, 'triangle', 0.06 * vol, 900 * r); this._tone(900 * r, 0.35, 'triangle', 0.06 * vol, 520 * r, 0.12); break;
+        case 'enderman':
+          if (hurt) this._tone(200 * r, 0.5, 'sawtooth', 0.08 * vol, 800 * r);
+          else { this._tone(90 * r, 0.6, 'sine', 0.1 * vol, 130 * r); this._noise(0.5, 'bandpass', 600, 4, 0.06 * vol); }
+          break;
+        case 'cod': this._noise(0.1, 'highpass', 2000, 1, 0.08 * vol); break;
+        case 'zombified_piglin': this._tone(160 * r, 0.4, 'sawtooth', 0.08 * vol, 120 * r); this._tone(240 * r, 0.2, 'square', 0.03 * vol, 180 * r, 0.25); break;
+        case 'ghast':
+          if (hurt) { this._tone(900 * r, 0.6, 'sawtooth', 0.08 * vol, 400 * r); }
+          else { this._tone(480 * r, 1.4, 'sine', 0.07 * vol, 360 * r); this._tone(700 * r, 1.1, 'triangle', 0.04 * vol, 520 * r, 0.1); }
+          break;
+        case 'blaze': this._noise(0.8, 'bandpass', 700, 1.2, 0.12 * vol, 0.1); this._tone(120 * r, 0.5, 'sawtooth', 0.04 * vol, 90); break;
+        case 'magma_cube': this._noise(0.12, 'lowpass', 500, 2, 0.25 * vol); this._tone(90 * r, 0.12, 'sine', 0.12 * vol, 60); break;
       }
     }
+    // portale, esperienza, incantesimi
+    portal(travel) {
+      if (travel) { this._tone(180, 1.4, 'sawtooth', 0.05, 520); this._noise(1.2, 'bandpass', 900, 2, 0.12, 0.3, 300); }
+      else { this._tone(120, 2.5, 'sine', 0.08, 240); this._noise(2.2, 'bandpass', 500, 3, 0.08, 0.5, 900); }
+    }
+    orb() { this._tone(1400 + Math.random() * 900, 0.09, 'sine', 0.07); }
+    levelup() { [523, 659, 784, 1047].forEach((f, i) => this._tone(f, 0.25, 'triangle', 0.08, null, i * 0.09)); }
+    enchant() { for (let i = 0; i < 6; i++) this._tone(1200 + Math.random() * 1400, 0.3, 'sine', 0.05, null, i * 0.06); }
+    equip() { this._noise(0.18, 'bandpass', 2200, 3, 0.2); this._tone(600, 0.1, 'triangle', 0.06, 800); }
+    fireball() { this._noise(0.6, 'lowpass', 1200, 1, 0.3, 0.02, 300); }
+    teleport() { this._tone(300, 0.35, 'sine', 0.1, 1200); this._tone(1200, 0.35, 'sine', 0.06, 300, 0.05); }
+    tame() { [660, 880, 1100].forEach((f, i) => this._tone(f, 0.14, 'sine', 0.07, null, i * 0.08)); }
   }
 
   MC.Audio = Audio;

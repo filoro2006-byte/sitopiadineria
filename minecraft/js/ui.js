@@ -3,6 +3,7 @@
   'use strict';
   const MC = (window.MC = window.MC || {});
   const $ = (id) => document.getElementById(id);
+  const B_LAPIS = () => MC.B.lapis;
 
   const TABS = [
     ['all', 'Tutti'], ['build', 'Costruzione'], ['nature', 'Natura'], ['ores', 'Minerali'], ['color', 'Colori'], ['deco', 'Decorazione'],
@@ -195,6 +196,33 @@
       }
     }
 
+    setLoadingTitle(t) { $('loading-title').textContent = t; }
+    setPortalFx(v) {
+      v = Math.round(v * 20) / 20;
+      if (this._pfx === v) return;
+      this._pfx = v;
+      $('fx-portal').style.opacity = String(v * 0.9);
+    }
+    updateXp() {
+      const p = this.game.player;
+      const show = p.mode === 'survival';
+      $('xp').classList.toggle('hidden', !show);
+      if (!show) return;
+      const need = MC.enchant.xpNeed(p.xpLevel || 0);
+      $('xp-fill').style.width = Math.min(100, ((p.xp || 0) / need) * 100).toFixed(1) + '%';
+      $('xp-level').textContent = p.xpLevel ? p.xpLevel : '';
+    }
+    // nome dell'oggetto con incantesimi e durabilità
+    itemTip(st) {
+      if (!st) return null;
+      const d = MC.blocks[st.id];
+      let t = d.name;
+      if (st.ench) for (const k in st.ench) if (MC.ENCH[k]) t += '\n' + MC.enchName(k, st.ench[k]);
+      if (d.armor) t += '\n+' + d.armor.def + ' armatura';
+      if (d.durability && st.dmg) t += '\nDurabilità: ' + (d.durability - st.dmg) + ' / ' + d.durability;
+      return t;
+    }
+
     setLoading(frac, sub) {
       $('loading-bar').style.width = Math.round(frac * 100) + '%';
       $('loading-sub').textContent = sub || '';
@@ -232,6 +260,7 @@
         const dm = st && st.dmg ? st.dmg : 0;
         if (e.dm !== dm) { e.dm = dm; if (e.bar) { e.bar.remove(); e.bar = null; } if (dm) { e.bar = durBar(id, dm); e.s.appendChild(e.bar); } }
         e.s.classList.toggle('sel', i === inv.selected);
+        e.s.classList.toggle('ench', !!(st && st.ench));
       }
     }
 
@@ -248,15 +277,25 @@
       const p = this.game.player;
       const hearts = $('hearts'), bub = $('bubbles');
       if (p.mode !== 'survival') {
-        if (hearts.childNodes.length) { hearts.innerHTML = ''; bub.innerHTML = ''; document.getElementById('hunger').innerHTML = ''; this._lastBars = ''; }
+        if (hearts.childNodes.length) { hearts.innerHTML = ''; bub.innerHTML = ''; document.getElementById('hunger').innerHTML = ''; $('armor-bar').innerHTML = ''; this._lastBars = ''; this.updateXp(); }
         return;
       }
       const hp = Math.ceil(p.health);
       const air = p.eyeInWater || p.air < 300 ? Math.ceil(p.air / 30) : -1;
       const fd = Math.ceil(p.food);
-      const key = hp + ':' + air + ':' + fd;
+      const ar = MC.enchant.armorStats(this.game.inventory).def;
+      const key = hp + ':' + air + ':' + fd + ':' + ar;
       if (key === this._lastBars) return;
       this._lastBars = key;
+      const ab = $('armor-bar');
+      ab.innerHTML = '';
+      if (ar > 0) for (let i = 0; i < 10; i++) {
+        const img = document.createElement('img');
+        const v = ar - i * 2;
+        img.src = MC.hudIcon(v >= 2 ? 'armor' : v === 1 ? 'armor_half' : 'armor_empty');
+        ab.appendChild(img);
+      }
+      this.updateXp();
       hearts.innerHTML = '';
       for (let i = 0; i < 10; i++) {
         const img = document.createElement('img');
@@ -304,19 +343,22 @@
 
     setFx(water, lava, hurt) {
       $('fx-water').style.opacity = water ? '1' : '0';
-      $('fx-lava').style.opacity = lava ? '1' : '0';
+      $('fx-lava').style.opacity = String(+lava || 0);
       $('fx-hurt').style.opacity = hurt > 0 ? String(Math.min(1, hurt * 2)) : '0';
     }
 
     // ---------------- Inventario ----------------
-    openInventory(station, chest) {
+    openInventory(station, chest, opts) {
       this.station = station || null;
       this.chest = chest || null;
-      const creative = this.game.player.mode === 'creative' && !chest;
+      this.enchant = !!(opts && opts.enchant);
+      if (this.enchant) { this.enchantSlots = [null, null]; $('ench-shelves').textContent = opts.shelves ? '· librerie: ' + opts.shelves : '· (metti librerie attorno per incantesimi migliori)'; }
+      const creative = this.game.player.mode === 'creative' && !chest && !this.enchant;
       $('inv-creative').classList.toggle('hidden', !creative);
       $('inv-survival').classList.toggle('hidden', creative);
       $('inv-chest').classList.toggle('hidden', !chest);
-      document.querySelector('.craft-col').classList.toggle('hidden', !!chest);
+      $('inv-enchant').classList.toggle('hidden', !this.enchant);
+      document.querySelector('.craft-col').classList.toggle('hidden', !!chest || this.enchant);
       $('craft-label').textContent = station === 'furnace' ? 'Fornace e creazione' : station === 'table' ? 'Banco da lavoro' : 'Creazione';
       $('inv-hint').textContent = creative
         ? 'Clic: prendi 64 · Clic destro: prendi 1 · Maiusc+clic: metti nella barra · Tasti 1-9 sopra un blocco: assegna allo slot'
@@ -328,10 +370,15 @@
 
     closeInventory() {
       this.chest = null;
+      if (this.enchant) {
+        for (const st of this.enchantSlots) if (st) { const left = this.game.inventory.add(st.id, st.count, st.dmg, st.ench); if (left) this.game.throwStack(st.id, left, st); }
+        this.enchantSlots = [null, null];
+        this.enchant = false;
+      }
       if (this.cursor) {
-        if (this.game.player.mode === 'survival') {
-          const left = this.game.inventory.add(this.cursor.id, this.cursor.count);
-          if (left) this.game.throwStack(this.cursor.id, left);
+        if (this.game.player.mode === 'survival' || this.cursor.ench) {
+          const left = this.game.inventory.add(this.cursor.id, this.cursor.count, this.cursor.dmg, this.cursor.ench);
+          if (left) this.game.throwStack(this.cursor.id, left, this.cursor);
         }
         this.cursor = null;
         this._renderCursor();
@@ -379,9 +426,9 @@
       }
     }
 
-    _slotEl(id, count, dmg) {
+    _slotEl(id, count, dmg, ench) {
       const s = document.createElement('div');
-      s.className = 'slot';
+      s.className = 'slot' + (ench ? ' ench' : '');
       if (id) {
         const img = document.createElement('img');
         img.src = MC.icon(id);
@@ -414,23 +461,25 @@
 
     renderInventory() {
       const inv = this.game.inventory;
-      const creative = this.game.player.mode === 'creative' && !this.chest;
+      const creative = this.game.player.mode === 'creative' && !this.chest && !this.enchant;
       if (this.chest) {
         const cg = $('chest-grid');
         cg.innerHTML = '';
         for (let i = 0; i < 27; i++) {
           const st = this.chest[i];
-          const el = this._slotEl(st ? st.id : 0, st ? st.count : 0, st ? st.dmg : 0);
+          const el = this._slotEl(st ? st.id : 0, st ? st.count : 0, st ? st.dmg : 0, st && st.ench);
           el.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); this._containerClick(this.chest, i, e.button, e.shiftKey, true); });
-          el.addEventListener('mouseenter', () => { const x = this.chest[i]; this._tip(x ? MC.blocks[x.id].name : null); });
+          el.addEventListener('mouseenter', () => { this._tip(this.itemTip(this.chest[i])); });
           el.addEventListener('mouseleave', () => this._tip(null));
           cg.appendChild(el);
         }
       }
+      if (this.enchant) this._renderEnchant();
       const hb = $('inv-hotbar');
       hb.innerHTML = '';
       for (let i = 0; i < 9; i++) hb.appendChild(this._invSlot(i, creative));
       if (!creative) {
+        this._renderArmor();
         const mn = $('inv-main');
         mn.innerHTML = '';
         for (let i = 9; i < 36; i++) mn.appendChild(this._invSlot(i, creative));
@@ -440,13 +489,13 @@
     }
 
     _invSlot(i, creative) {
-      creative = creative && !this.chest;
+      creative = creative && !this.chest && !this.enchant;
       const inv = this.game.inventory;
       const st = inv.slots[i];
-      const s = this._slotEl(st ? st.id : 0, creative ? 0 : st ? st.count : 0, st ? st.dmg : 0);
+      const s = this._slotEl(st ? st.id : 0, creative ? 0 : st ? st.count : 0, st ? st.dmg : 0, st && st.ench);
       if (i === inv.selected) s.classList.add('selected');
       s.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); this._slotClick(i, e.button, e.shiftKey); });
-      s.addEventListener('mouseenter', () => { this.hoverSlot = { inv: i }; const x = inv.slots[i]; this._tip(x ? MC.blocks[x.id].name : null); });
+      s.addEventListener('mouseenter', () => { this.hoverSlot = { inv: i }; this._tip(this.itemTip(inv.slots[i])); });
       s.addEventListener('mouseleave', () => { this.hoverSlot = null; this._tip(null); });
       return s;
     }
@@ -457,23 +506,23 @@
       const cur = this.cursor;
       const max = (id) => MC.stackOf(id);
       if (shift && !cur && st) {
-        const left = inv.add(st.id, st.count, st.dmg);
+        const left = inv.add(st.id, st.count, st.dmg, st.ench);
         if (left) st.count = left; else arr[i] = null;
       } else if (!cur) {
         if (st) {
-          if (button === 2) { const half = Math.ceil(st.count / 2); this.cursor = { id: st.id, count: half, dmg: st.dmg }; st.count -= half; if (st.count <= 0) arr[i] = null; }
+          if (button === 2) { const half = Math.ceil(st.count / 2); this.cursor = Object.assign({}, st, { count: half }); st.count -= half; if (st.count <= 0) arr[i] = null; }
           else { this.cursor = st; arr[i] = null; }
         }
       } else if (!st) {
-        if (button === 2) { arr[i] = { id: cur.id, count: 1, dmg: cur.dmg }; cur.count--; if (cur.count <= 0) this.cursor = null; }
+        if (button === 2) { arr[i] = Object.assign({}, cur, { count: 1 }); cur.count--; if (cur.count <= 0) this.cursor = null; }
         else { arr[i] = cur; this.cursor = null; }
-      } else if (st.id === cur.id && max(st.id) > 1) {
+      } else if (st.id === cur.id && max(st.id) > 1 && !st.ench && !cur.ench) {
         const m = Math.min(max(st.id) - st.count, button === 2 ? 1 : cur.count);
         st.count += m; cur.count -= m; if (cur.count <= 0) this.cursor = null;
       } else { arr[i] = cur; this.cursor = st; }
       this._renderCursor();
       this.renderInventory();
-      this.game.chestChanged();
+      if (arr === this.chest) this.game.chestChanged();
     }
 
     // mostra gli scambi di un villico
@@ -513,16 +562,22 @@
 
     _slotClick(i, button, shift) {
       const inv = this.game.inventory;
-      const creative = this.game.player.mode === 'creative' && !this.chest;
+      const creative = this.game.player.mode === 'creative' && !this.chest && !this.enchant;
       const st = inv.slots[i];
       const cur = this.cursor;
       if (shift && !cur && st && this.chest) {
         let n = st.count;
         for (let k = 0; k < 27 && n > 0; k++) { const o = this.chest[k]; if (o && o.id === st.id && o.count < MC.stackOf(st.id)) { const m = Math.min(MC.stackOf(st.id) - o.count, n); o.count += m; n -= m; } }
-        for (let k = 0; k < 27 && n > 0; k++) if (!this.chest[k]) { this.chest[k] = { id: st.id, count: n, dmg: st.dmg }; n = 0; }
+        for (let k = 0; k < 27 && n > 0; k++) if (!this.chest[k]) { this.chest[k] = Object.assign({}, st, { count: n }); n = 0; }
         if (n > 0) st.count = n; else inv.slots[i] = null;
         inv._ch();
         this.game.chestChanged();
+      } else if (shift && !cur && st && this.enchant) {
+        // nel tavolo: lapislazzuli a destra, oggetto a sinistra
+        const k = st.id === B_LAPIS() ? 1 : 0;
+        if (!this.enchantSlots[k]) { this.enchantSlots[k] = st; inv.slots[i] = null; inv._ch(); }
+      } else if (shift && !cur && st && MC.blocks[st.id].armor && !inv.armor[MC.blocks[st.id].armor.slot] && !creative) {
+        inv.armor[MC.blocks[st.id].armor.slot] = st; inv.slots[i] = null; inv._ch();
       } else if (shift && !cur && st) {
         if (creative) { inv.set(i, null); }
         else {
@@ -534,7 +589,7 @@
             if (o && o.id === st.id && o.count < MC.stackOf(st.id)) { const m = Math.min(MC.stackOf(st.id) - o.count, n); o.count += m; n -= m; }
           }
           for (let k = range[0]; k < range[1] && n > 0; k++) {
-            if (!inv.slots[k]) { inv.slots[k] = { id: st.id, count: n }; n = 0; }
+            if (!inv.slots[k]) { inv.slots[k] = Object.assign({}, st, { count: n }); n = 0; }
           }
           if (n > 0) st.count = n; else inv.slots[i] = null;
           inv._ch();
@@ -543,16 +598,16 @@
         if (st) {
           if (button === 2 && !creative) {
             const half = Math.ceil(st.count / 2);
-            this.cursor = { id: st.id, count: half };
+            this.cursor = Object.assign({}, st, { count: half });
             st.count -= half;
             if (st.count <= 0) inv.slots[i] = null;
-          } else { this.cursor = { id: st.id, count: st.count }; inv.slots[i] = null; }
+          } else { this.cursor = st; inv.slots[i] = null; }
         }
       } else {
         if (!st) {
-          if (button === 2) { inv.slots[i] = { id: cur.id, count: 1 }; cur.count--; if (cur.count <= 0) this.cursor = null; }
+          if (button === 2) { inv.slots[i] = Object.assign({}, cur, { count: 1 }); cur.count--; if (cur.count <= 0) this.cursor = null; }
           else { inv.slots[i] = cur; this.cursor = null; }
-        } else if (st.id === cur.id) {
+        } else if (st.id === cur.id && !st.ench && !cur.ench && MC.stackOf(st.id) > 1) {
           if (creative) { this.cursor = null; }
           else if (button === 2) { if (st.count < MC.stackOf(st.id)) { st.count++; cur.count--; if (cur.count <= 0) this.cursor = null; } }
           else { const m = Math.min(MC.stackOf(st.id) - st.count, cur.count); st.count += m; cur.count -= m; if (cur.count <= 0) this.cursor = null; }
@@ -564,6 +619,84 @@
       inv._ch();
       this._renderCursor();
       this.renderInventory();
+    }
+
+    // slot dell'armatura
+    _renderArmor() {
+      const inv = this.game.inventory;
+      const el = $('inv-armor');
+      el.innerHTML = '';
+      const PH = ['iron_helmet', 'iron_chestplate', 'iron_leggings', 'iron_boots'];
+      for (let i = 0; i < 4; i++) {
+        const st = inv.armor[i];
+        const s = this._slotEl(st ? st.id : MC.B[PH[i]], 0, st ? st.dmg : 0, st && st.ench);
+        if (!st) s.classList.add('ph');
+        s.addEventListener('mousedown', (e) => {
+          e.preventDefault(); e.stopPropagation();
+          const cur = this.cursor;
+          if (cur) {
+            const d = MC.blocks[cur.id];
+            if (!d.armor || d.armor.slot !== i || cur.count !== 1) return;
+            inv.armor[i] = cur; this.cursor = st || null;
+          } else if (st) {
+            if (e.shiftKey) { const left = inv.add(st.id, 1, st.dmg, st.ench); if (left) return; }
+            else this.cursor = st;
+            inv.armor[i] = null;
+          }
+          this.game.audio.pop();
+          inv._ch();
+          this._lastBars = null;
+          this._renderCursor();
+          this.renderInventory();
+        });
+        s.addEventListener('mouseenter', () => this._tip(st ? this.itemTip(st) : ['Elmo', 'Corazza', 'Gambali', 'Stivali'][i]));
+        s.addEventListener('mouseleave', () => this._tip(null));
+        el.appendChild(s);
+      }
+    }
+
+    // tavolo per incantesimi: oggetto + lapislazzuli e tre opzioni
+    _renderEnchant() {
+      const g = this.game, p = g.player;
+      const sl = $('ench-slots');
+      sl.innerHTML = '';
+      for (let i = 0; i < 2; i++) {
+        const st = this.enchantSlots[i];
+        const el = this._slotEl(st ? st.id : (i === 1 ? B_LAPIS() : 0), st ? st.count : 0, st ? st.dmg : 0, st && st.ench);
+        if (!st && i === 1) el.classList.add('ph');
+        el.addEventListener('mousedown', (e) => {
+          e.preventDefault(); e.stopPropagation();
+          const cur = this.cursor;
+          if (cur && i === 1 && cur.id !== B_LAPIS()) return;
+          if (cur && i === 0 && cur.count !== 1 && !MC.enchant.canEnchant(cur)) return;
+          this._containerClick(this.enchantSlots, i, e.button, e.shiftKey);
+        });
+        el.addEventListener('mouseenter', () => this._tip(st ? this.itemTip(st) : i === 1 ? 'Lapislazzuli' : 'Oggetto da incantare'));
+        el.addEventListener('mouseleave', () => this._tip(null));
+        sl.appendChild(el);
+      }
+      const box = $('ench-opts');
+      box.innerHTML = '';
+      const opts = MC.enchant.options(p.xpSeed || 0, this.enchantSlots[0], g.enchantShelves || 0);
+      const lap = this.enchantSlots[1];
+      for (let i = 0; i < 3; i++) {
+        const row = document.createElement('div');
+        row.className = 'ench-opt';
+        if (!opts) { row.classList.add('off'); row.textContent = '—'; box.appendChild(row); continue; }
+        const o = opts[i];
+        const ok = p.mode === 'creative' || ((p.xpLevel || 0) >= o.cost && lap && lap.count >= o.lapis);
+        if (!ok) row.classList.add('off');
+        const c = document.createElement('span'); c.className = 'clue'; c.textContent = o.clue + ' . . . ?'; row.appendChild(c);
+        const lp = document.createElement('span'); lp.className = 'lap'; lp.textContent = o.lapis + ' lapis'; row.appendChild(lp);
+        const lv = document.createElement('span'); lv.className = 'lv'; lv.textContent = 'Liv. ' + o.cost; row.appendChild(lv);
+        row.addEventListener('mousedown', (e) => {
+          e.preventDefault(); e.stopPropagation();
+          if (g.applyEnchant(i)) this.renderInventory();
+        });
+        row.addEventListener('mouseenter', () => this._tip('Richiede il livello ' + o.cost + ' · costa ' + o.lapis + ' livell' + (o.lapis > 1 ? 'i' : 'o') + ' e ' + o.lapis + ' lapislazzuli'));
+        row.addEventListener('mouseleave', () => this._tip(null));
+        box.appendChild(row);
+      }
     }
 
     // tasto numerico sopra uno slot

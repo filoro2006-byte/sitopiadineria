@@ -37,10 +37,19 @@
       prof = opts.prof || ps[Math.floor(this.rng() * ps.length)];
       variant = prof;
     }
+    if (type === 'cat') {
+      const vs = Object.keys(MC.mobs.CAT_VARIANTS);
+      variant = opts.variant && MC.mobs.CAT_VARIANTS[opts.variant] ? opts.variant : vs[Math.floor(this.rng() * vs.length)];
+    }
+    let DD = D;
+    if (type === 'magma_cube') {
+      const size = opts.size || [1, 2, 3][Math.floor(this.rng() * 3)];
+      DD = Object.assign({}, D, { w: 0.52 * size, h: 0.52 * size, hp: size * size, scale: size, size, speed: D.speed + size * 0.3 });
+    }
     const m = {
-      type, D, M: D, skin: 1000 + MC.mobs.skinIndex[type + ':' + variant], parts: MC.mobs.models[type],
+      type, D: DD, M: DD, variant, skin: 1000 + MC.mobs.skinIndex[type + ':' + variant], parts: MC.mobs.models[type],
       x, y, z, vx: 0, vy: 0, vz: 0, yaw: this.rng() * Math.PI * 2, bodyYaw: 0, headYaw: 0, headPitch: 0,
-      hp: D.hp, hurt: 0, dead: 0, onGround: false, walk: 0, walkAmt: 0, timer: 0, dirX: 0, dirZ: 0, panic: 0,
+      hp: DD.hp, maxHp: DD.hp, hurt: 0, dead: 0, onGround: false, walk: 0, walkAmt: 0, timer: 0, dirX: 0, dirZ: 0, panic: 0,
       attackCd: 0, burn: 0, soundTimer: 3 + this.rng() * 10, jumpCd: 0, swing: 0, fuse: 0, shootCd: 1 + this.rng() * 2,
       angry: 0, prof, home: opts.home || null, persistent: !!opts.persistent, strafe: this.rng() < 0.5 ? 1 : -1,
     };
@@ -50,6 +59,13 @@
       m.color = SHEEP_COLORS[0];
       for (const c of SHEEP_COLORS) { acc += c[2]; if (r < acc) { m.color = c; break; } }
     }
+    if ((type === 'zombie' || type === 'skeleton') && this.rng() < 0.15) {
+      const mats = ['leather', 'leather', 'golden', 'chainmail', 'chainmail', 'iron', 'iron', 'diamond'];
+      const mat = mats[Math.floor(this.rng() * mats.length)];
+      m.armor = [0, 0, 0, 0];
+      ['helmet', 'chestplate', 'leggings', 'boots'].forEach((pc, i) => { if (i === 0 || this.rng() < 0.55) m.armor[i] = B[mat + '_' + pc]; });
+    }
+    if (opts.tamed) { m.tamed = true; m.hp = m.maxHp = 20; m.sitting = !!opts.sitting; m.persistent = true; }
     if (type === 'villager') {
       const list = TRADES[prof].slice();
       m.trades = list.map((t) => ({ ins: t[0].map(([k, n]) => [B[k], n]), out: [B[t[1][0]], t[1][1]] })).filter((t) => t.out[0] && t.ins.every((i) => i[0]));
@@ -60,15 +76,28 @@
   };
 
   // ---------------- Combattimento ----------------
-  E.hitMob = function (m, dmg, fromX, fromZ, kb) {
+  E.hitMob = function (m, dmg, fromX, fromZ, kb, attacker) {
     if (m.dead || m.hurt > 0.3) return false;
     m.hp -= dmg;
     m.hurt = 0.5;
     const dx = m.x - fromX, dz = m.z - fromZ, d = Math.hypot(dx, dz) || 1;
-    const k = (kb || 1) * (m.D.golem ? 0.2 : 1);
+    const k = (kb || 1) * (m.D.golem ? 0.2 : m.type === 'ghast' ? 0.15 : 1);
     m.vx += (dx / d) * 7 * k; m.vz += (dz / d) * 7 * k; m.vy = Math.max(m.vy, 5 * k);
     m.panic = 5;
-    m.angry = 30;
+    if (attacker === 'player') {
+      if (!m.tamed) m.angry = 30;
+      m.lastPlayerHit = 5;
+      // i piglin e i lupi si arrabbiano in gruppo
+      if (m.type === 'zombified_piglin' || (m.type === 'wolf' && !m.tamed)) {
+        for (const o of this.mobs) if (o.type === m.type && !o.tamed && !o.dead && Math.hypot(o.x - m.x, o.z - m.z) < 20) o.angry = 30;
+      }
+      // gli animali domestici attaccano il bersaglio del padrone
+      if (!m.tamed) for (const o of this.mobs) if (o.tamed && o.type === 'wolf' && !o.sitting && !o.dead) o.target = m;
+      if (m.type === 'enderman' && this.rng() < 0.3) this.teleportMob(m, this.game.world);
+    } else if (attacker && attacker !== m) {
+      m.target = attacker;
+      if (m.tamed || m.D.neutral || m.type === 'wolf') m.angry = 30;
+    } else if (attacker === undefined) m.angry = Math.max(m.angry, 0);
     this.game.audio.mob(m.type, true);
     if (m.hp <= 0) this.killMob(m);
     return true;
@@ -77,8 +106,18 @@
   E.killMob = function (m) {
     if (m.dead) return;
     m.dead = 0.001;
+    // i cubi di magma si dividono
+    if (m.type === 'magma_cube' && m.D.size > 1) {
+      const n = 2 + Math.floor(this.rng() * 3);
+      for (let i = 0; i < n; i++) { const c = this.spawnMob('magma_cube', m.x + (this.rng() - 0.5) * m.D.w, m.y + 0.2, m.z + (this.rng() - 0.5) * m.D.w, { size: m.D.size - 1 }); if (c) { c.vy = 4; c.angry = 30; } }
+    }
+    if (m.tamed) this.game.ui.chat(m.D.name + ' è morto.');
     if (this.game.player.mode !== 'survival') return;
-    const r = (a, b) => a + Math.floor(this.rng() * (b - a + 1));
+    const byPlayer = m.lastPlayerHit > 0;
+    if (byPlayer && m.D.xp) this.spawnXp(m.x, m.y + 0.3, m.z, m.D.xp[0] + Math.floor(this.rng() * (m.D.xp[1] - m.D.xp[0] + 1)));
+    else if (byPlayer) this.spawnXp(m.x, m.y + 0.3, m.z, m.D.hostile ? 5 : 1 + Math.floor(this.rng() * 3));
+    const loot = byPlayer ? m.looting || 0 : 0;
+    const r = (a, b) => a + Math.floor(this.rng() * (b - a + 1 + loot));
     const drop = (k, n) => { if (n > 0 && B[k]) this.dropItem(B[k], n, m.x, m.y + 0.5, m.z); };
     const cooked = m.burn > 0;
     switch (m.type) {
@@ -86,11 +125,20 @@
       case 'cow': drop(cooked ? 'steak' : 'beef', r(1, 3)); drop('leather', r(0, 2)); break;
       case 'sheep': drop(m.color[1], 1); drop(cooked ? 'cooked_mutton' : 'mutton', r(1, 2)); break;
       case 'chicken': drop(cooked ? 'cooked_chicken' : 'chicken', 1); drop('feather', r(0, 2)); break;
-      case 'zombie': drop('rotten_flesh', r(0, 2)); if (this.rng() < 0.025) drop('iron_ingot', 1); if (this.rng() < 0.025) drop('carrot', 1); break;
-      case 'skeleton': drop('bone', r(0, 2)); drop('arrow', r(0, 2)); break;
+      case 'zombie': case 'skeleton':
+        if (m.armor) for (const id of m.armor) if (id && this.rng() < 0.085 + loot * 0.01) this.dropItem(id, 1, m.x, m.y + 0.5, m.z, undefined, undefined, undefined, undefined, { dmg: Math.floor(MC.blocks[id].durability * (0.3 + this.rng() * 0.6)) });
+        if (m.type === 'skeleton') { drop('bone', r(0, 2)); drop('arrow', r(0, 2)); break; }
+        drop('rotten_flesh', r(0, 2)); if (this.rng() < 0.025) drop('iron_ingot', 1); if (this.rng() < 0.025) drop('carrot', 1); break;
       case 'creeper': drop('gunpowder', r(0, 2)); break;
       case 'spider': drop('string', r(0, 2)); break;
       case 'iron_golem': drop('iron_ingot', r(3, 5)); drop('poppy', r(0, 2)); break;
+      case 'enderman': drop('ender_pearl', r(0, 1)); break;
+      case 'cat': drop('string', r(0, 2)); break;
+      case 'cod': drop(cooked ? 'cooked_cod' : 'cod', 1); if (this.rng() < 0.05) drop('bone_meal', 1); break;
+      case 'zombified_piglin': drop('rotten_flesh', r(0, 1)); drop('gold_nugget', r(0, 1)); if (this.rng() < 0.025 + loot * 0.01) drop('gold_ingot', 1); if (this.rng() < 0.08) drop('golden_sword', 1); break;
+      case 'ghast': drop('ghast_tear', r(0, 1)); drop('gunpowder', r(0, 2)); break;
+      case 'blaze': drop('blaze_rod', r(0, 1)); break;
+      case 'magma_cube': if (m.D.size > 1) drop('magma_cream', r(0, 1)); break;
     }
   };
 
@@ -115,8 +163,10 @@
 
   // ---------------- Frecce ----------------
   E.shootArrow = function (x, y, z, vx, vy, vz, owner, dmg) {
-    this.arrows.push({ x, y, z, vx, vy, vz, owner, dmg: dmg || 3, stuck: false, age: 0 });
+    const a = { x, y, z, vx, vy, vz, owner, dmg: dmg || 3, stuck: false, age: 0 };
+    this.arrows.push(a);
     if (this.arrows.length > 200) this.arrows.shift();
+    return a;
   };
 
   E.updateArrows = function (dt, world, player) {
@@ -126,7 +176,8 @@
       if (a.age > 60 || a.y < -40) { this.arrows.splice(i, 1); continue; }
       if (a.stuck) {
         if (a.owner === 'player' && a.age > 0.5 && Math.hypot(player.x - a.x, player.y + 0.8 - a.y, player.z - a.z) < 1.4) {
-          if (player.mode === 'survival') { if (this.game.inventory.add(B.arrow, 1) === 0) { this.game.audio.pop(); this.arrows.splice(i, 1); } }
+          if (a.infinite) this.arrows.splice(i, 1);
+          else if (player.mode === 'survival') { if (this.game.inventory.add(B.arrow, 1) === 0) { this.game.audio.pop(); this.arrows.splice(i, 1); } }
           else this.arrows.splice(i, 1);
         }
         if (!SOLID[world.getBlock(Math.floor(a.x), Math.floor(a.y), Math.floor(a.z))]) { a.stuck = false; a.vx = a.vz = 0; }
@@ -149,7 +200,10 @@
         for (const m of this.mobs) {
           if (m.dead || m === a.owner) continue;
           if (hitE(m.x, m.y, m.z, m.D.w, m.D.h)) {
-            this.hitMob(m, Math.ceil(a.dmg), a.x - a.vx, a.z - a.vz, 0.6);
+            if (m.type === 'enderman') { this.teleportMob(m, world); this.arrows.splice(i, 1); done = true; break; }
+            if (a.flame && !m.D.fireImmune) m.onFire = 5;
+            if (a.owner === 'player') { m.lastPlayerHit = 5; m.looting = 0; }
+            this.hitMob(m, Math.ceil(a.dmg), a.x - a.vx, a.z - a.vz, 0.6 + (a.punch || 0) * 0.8, a.owner === 'player' ? 'player' : a.owner);
             if (a.owner === 'player' || a.owner && a.owner.type === 'skeleton') m.target = a.owner === 'player' ? 'player' : a.owner;
             this.arrows.splice(i, 1); done = true; break;
           }
@@ -183,8 +237,10 @@
     this.spawnTimer -= dt;
     if (this.spawnTimer > 0) return;
     this.spawnTimer = 1.0;
+    if (world.nether) { if (this.game.settings.mobs) this._netherSpawns(world, player); return; }
     this._villageSpawns(world, player);
     if (!this.game.settings.mobs) return;
+    this._extraSpawns(world, player, env);
     let passive = 0, hostile = 0;
     for (const m of this.mobs) { if (m.D.hostile) hostile++; else if (!m.persistent) passive++; }
     const night = env.dayF < 0.3;
@@ -211,7 +267,8 @@
         const sky = world.getSky(x, y + 1, z) * env.day, blk = world.getBlockLight(x, y + 1, z);
         if (sky > 6 || blk > 6) continue;
         const rr = this.rng();
-        const t = rr < 0.4 ? 'zombie' : rr < 0.7 ? 'skeleton' : rr < 0.9 ? 'creeper' : 'spider';
+        const t = rr < 0.38 ? 'zombie' : rr < 0.66 ? 'skeleton' : rr < 0.84 ? 'creeper' : rr < 0.95 ? 'spider' : 'enderman';
+        if (t === 'enderman' && (world.getBlock(x, y + 3, z) || !night)) continue;
         if (t === 'spider' && (world.getBlock(x + 1, y + 1, z) || world.getBlock(x - 1, y + 1, z))) continue;
         this.spawnMob(t, x + 0.5, y + 1, z + 0.5);
         hostile++;
@@ -250,6 +307,7 @@
         this.spawnMob('villager', x + 0.5, y, z + 0.5, { home: key, persistent: true, prof: profs[i % profs.length] });
       }
       this.spawnMob('iron_golem', v.x + 3.5, cy, v.z + 0.5, { home: key, persistent: true });
+      for (let i = 0; i < 2; i++) this.spawnMob('cat', v.x - 2.5 + i * 5, cy, v.z - 2.5, { home: key, persistent: true });
     }
   };
 
@@ -282,7 +340,9 @@
       if (m.wx || m.wz) { m.dirX = m.wx; m.dirZ = m.wz; m.wantSpeed = D.speed * speedMul; }
     };
 
-    if (D.hostile) {
+    if (this['_ai_' + m.type]) {
+      lookAt = this['_ai_' + m.type](m, dt, world, player, env, pd, survival, canSee, wander);
+    } else if (D.hostile) {
       // bersaglio: giocatore (sopravvivenza) oppure villici per gli zombie
       let target = null;
       const neutralSpider = m.type === 'spider' && env.dayF > 0.5 && m.angry <= 0;
@@ -313,6 +373,10 @@
             this.shootArrow(sx + dx / hd * 0.6, sy, sz + dz / hd * 0.6, (dx / hd + (this.rng() - 0.5) * inacc) * speed, vy, (dz / hd + (this.rng() - 0.5) * inacc) * speed, m, 2 + this.rng() * 2);
             this.game.audio.bow(Math.max(0.1, 1 - pd / 24));
           }
+        } else if (m.type === 'creeper' && this.mobs.some((o) => o.type === 'cat' && !o.dead && Math.hypot(o.x - m.x, o.z - m.z) < 6)) {
+          const c = this.mobs.find((o) => o.type === 'cat' && !o.dead && Math.hypot(o.x - m.x, o.z - m.z) < 6);
+          m.fuse = Math.max(0, m.fuse - dt);
+          this._walkToward(m, m.x - (c.x - m.x), m.z - (c.z - m.z), D.speed * 1.2, dt);
         } else if (m.type === 'creeper') {
           const see = target === 'player' ? canSee() : false;
           if (dist < 3 && see) {
@@ -394,7 +458,7 @@
     }
 
     // evita dirupi, lava e acqua profonda (non per chi insegue)
-    if (m.wantSpeed > 0 && !D.hostile) {
+    if (m.wantSpeed > 0 && !D.hostile && !D.water && !D.flies && !(m.angry > 0) && !m.target) {
       const ax = Math.floor(m.x + m.dirX * 0.9), az = Math.floor(m.z + m.dirZ * 0.9);
       let drop = 0;
       for (let k = 0; k < 4; k++) { if (SOLID[world.getBlock(ax, Math.floor(m.y) - 1 - k, az)]) break; drop++; }
@@ -409,13 +473,13 @@
       const k = Math.min(1, dt * (m.onGround ? 10 : 2));
       m.vx += (m.dirX * m.wantSpeed - m.vx) * k;
       m.vz += (m.dirZ * m.wantSpeed - m.vz) * k;
-      if (m.hitH && m.jumpCd <= 0) {
+      if (m.hitH && m.jumpCd <= 0 && !D.flies && !D.water && !D.cube) {
         if (D.climbs) { m.vy = 3.2; }
         else if (m.onGround) { m.vy = 8.2; m.jumpCd = 0.4; }
       }
-      if (m.inWater) { m.vy = Math.max(m.vy, m.hitH ? 4 : 1.5); }
-    } else if (m.onGround) {
-      m.vx *= Math.max(0, 1 - dt * 10); m.vz *= Math.max(0, 1 - dt * 10);
+      if (m.inWater && !D.water && !D.flies) { m.vy = Math.max(m.vy, m.hitH ? 4 : 1.5); }
+    } else if (m.onGround || D.flies || (D.water && m.inWater)) {
+      m.vx *= Math.max(0, 1 - dt * (m.onGround ? 10 : 2)); m.vz *= Math.max(0, 1 - dt * (m.onGround ? 10 : 2));
     }
     if (m.type === 'chicken' && !m.onGround && m.vy < -2) m.vy = -2;
     // corpo e testa
@@ -426,7 +490,18 @@
       const hd = Math.hypot(lookAt[0] - m.x, lookAt[2] - m.z);
       m.headPitch += (Math.max(-0.8, Math.min(0.8, -Math.atan2(lookAt[1] - eyeY, hd))) - m.headPitch) * Math.min(1, dt * 6);
     } else { m.headYaw *= 1 - Math.min(1, dt * 3); m.headPitch *= 1 - Math.min(1, dt * 3); }
-    if (m.inLava) { m.hp -= dt * 4; m.hurt = 0.2; m.burn = 1; if (m.hp <= 0) this.killMob(m); }
+    if (m.inLava && !D.fireImmune) { m.hp -= dt * 4; m.hurt = 0.2; m.burn = 1; if (m.hp <= 0) this.killMob(m); }
+    // in fiamme
+    if (m.onFire > 0) {
+      m.onFire -= dt;
+      if (m.inWater || D.fireImmune) m.onFire = 0;
+      else {
+        m.burn = Math.max(m.burn, 0.01);
+        m.fireT = (m.fireT || 0) + dt;
+        if (this.rng() < 0.5) this.flame(m.x + (this.rng() - 0.5) * D.w, m.y + this.rng() * D.h, m.z + (this.rng() - 0.5) * D.w);
+        if (m.fireT > 1) { m.fireT = 0; m.hp -= 1; m.hurt = 0.3; if (m.hp <= 0) this.killMob(m); }
+      }
+    }
     // versi
     m.soundTimer -= dt;
     if (m.soundTimer <= 0) {
@@ -438,10 +513,22 @@
 
   E.updateMobs = function (dt, world, player, env) {
     this._spawnLogic(dt, world, player, env);
+    if (this.pendingPets && this.pendingPets.length) {
+      for (let i = this.pendingPets.length - 1; i >= 0; i--) {
+        const q = this.pendingPets[i];
+        if (!world.isReady(q.x, q.z)) continue;
+        this.spawnMob(q.type, q.x, q.y + 0.1, q.z, { tamed: true, sitting: q.sitting, variant: q.variant });
+        this.pendingPets.splice(i, 1);
+      }
+    }
     for (let i = this.mobs.length - 1; i >= 0; i--) {
       const m = this.mobs[i];
+      if (m.lastPlayerHit > 0) m.lastPlayerHit -= dt;
+      m.noGrav = m.D.flies;
+      m.fish = m.D.water;
       const pd = Math.hypot(player.x - m.x, player.z - m.z);
-      if (m.removeNow || pd > (m.persistent ? 130 : 110) || m.y < -40 || (!m.persistent && m.D.hostile && pd > 72 && this.rng() < dt * 0.05)) { this.mobs.splice(i, 1); continue; }
+      if (m.tamed && pd > 110) { (this.pendingPets = this.pendingPets || []).push({ type: m.type, x: m.x, y: m.y, z: m.z, sitting: m.sitting, variant: m.variant }); this.mobs.splice(i, 1); continue; }
+      if (m.removeNow || pd > (m.persistent ? 130 : m.type === 'ghast' ? 150 : 110) || m.y < -40 || (!m.persistent && m.D.hostile && pd > 72 && this.rng() < dt * 0.05)) { this.mobs.splice(i, 1); continue; }
       if (!world.isReady(m.x, m.z)) continue;
       if (m.dead) {
         m.dead += dt;
@@ -470,23 +557,31 @@
   };
 
   // ---------------- Disegno ----------------
+  const ARMOR_DRAW = { head: [0, 1.05], body: [1, 0.9], arm: [1, 0.75], leg: [2, 0.45] };
   E.renderMobs = function (bt, env, cam, world, time) {
     const px = 1 / 16;
-    for (const m of this.mobs) {
+    const T = MC.textures.index;
+    const list = this.playerMob ? this.mobs.concat([this.playerMob]) : this.mobs;
+    for (const m of list) {
       const dcam = Math.hypot(m.x - cam.x, m.z - cam.z);
       if (dcam > 96) continue;
       const l = MC.lightAt(world, m.x, m.y + Math.min(1.2, m.D.h * 0.6), m.z, env);
       const hurt = m.hurt > 0 || (m.dead && m.dead < 90);
       const flash = m.type === 'creeper' && m.fuse > 0 && Math.floor(m.fuse * 8) % 2 === 0;
-      const base = mat4.translate(mat4.create(), m.x - cam.x, m.y - cam.y, m.z - cam.z);
+      const jit = m.jitter ? 0.03 : 0;
+      const hover = m.D.flies && m.type === 'blaze' ? Math.sin(time * 2 + m.x) * 0.08 : 0;
+      const base = mat4.translate(mat4.create(), m.x - cam.x + (jit ? (Math.random() - 0.5) * jit : 0), m.y - cam.y + hover - (m.sitting ? 0.2 : 0), m.z - cam.z + (jit ? (Math.random() - 0.5) * jit : 0));
       mat4.rotY(tA, m.bodyYaw); mat4.mul(base, base, tA);
       if (m.dead) { mat4.rotZ(tA, Math.min(1, m.dead * 3) * Math.PI / 2); mat4.mul(base, base, tA); }
-      let sc = px;
+      if (m.sitting) { mat4.rotX(tA, 0.4); mat4.mul(base, base, tA); }
+      let sc = px * (m.D.scale || 1);
       if (m.type === 'creeper' && m.fuse > 0) sc *= 1 + Math.min(0.25, m.fuse * 0.15);
       mat4.scale(tA, sc, sc, sc); mat4.mul(base, base, tA);
       const sw = Math.sin(m.walk * 2.2) * 0.75 * m.walkAmt;
       const sw2 = Math.sin(m.walk * 3.2);
+      const glowAll = m.D.glow;
       for (const p of m.parts) {
+        if (p.cond && !m[p.cond]) continue;
         let M = base;
         if (p.pv) {
           M = mat4.create();
@@ -496,7 +591,25 @@
             mat4.rotY(tB, m.headYaw); mat4.mul(M, M, tB);
             mat4.rotX(tB, m.headPitch); mat4.mul(M, M, tB);
           } else if (a === 'legA' || a === 'legB') {
-            mat4.rotX(tB, a === 'legA' ? sw : -sw); mat4.mul(M, M, tB);
+            if (m.sitting) { mat4.rotX(tB, p.b[2] > 0 ? 1.1 : -0.4); mat4.mul(M, M, tB); }
+            else { mat4.rotX(tB, a === 'legA' ? sw : -sw); mat4.mul(M, M, tB); }
+          } else if (a === 'tail') {
+            const up = m.type === 'wolf' ? (m.angry > 0 ? 1.1 : 0.4 + (m.hp / (m.maxHp || 8)) * 0.6) : 0;
+            mat4.rotX(tB, up); mat4.mul(M, M, tB);
+            mat4.rotY(tB, Math.sin(time * 9) * (m.tamed && !m.sitting ? 0.45 : 0.1) + sw * 0.2); mat4.mul(M, M, tB);
+          } else if (a === 'tailFish') {
+            mat4.rotY(tB, Math.sin(time * (m.inWater ? 10 : 22)) * 0.5); mat4.mul(M, M, tB);
+          } else if (a && a.startsWith('tent')) {
+            const i = +a.slice(4);
+            mat4.rotX(tB, Math.sin(time * 1.8 + i * 1.1) * 0.3); mat4.mul(M, M, tB);
+            mat4.rotZ(tB, Math.cos(time * 1.4 + i * 0.7) * 0.22); mat4.mul(M, M, tB);
+          } else if (a && a.startsWith('rod')) {
+            const i = +a.slice(3), ring = Math.floor(i / 4);
+            mat4.rotY(tB, time * (ring === 1 ? -1.6 : 1.3) + (i % 4) * Math.PI / 2 + ring * 0.6); mat4.mul(M, M, tB);
+            mat4.translate(tB, 0, Math.sin(time * 3 + i) * 0.8, 0); mat4.mul(M, M, tB);
+          } else if (a && a.startsWith('slice')) {
+            const i = +a.slice(5);
+            mat4.translate(tB, 0, i * (m.squish || 0) * 0.7, 0); mat4.mul(M, M, tB);
           } else if (a === 'armA' || a === 'armB') {
             let ang = (a === 'armA' ? -sw : sw) * 0.8;
             if (m.aiming) ang = -Math.PI / 2 + m.headPitch * 0.5;
@@ -533,7 +646,63 @@
         if (p.tint && m.color) col = [m.color[0][0] / 255, m.color[0][1] / 255, m.color[0][2] / 255, 1];
         if (hurt) col = [col[0] * 1.0, col[1] * 0.45, col[2] * 0.45, 1];
         if (flash) col = [2.2, 2.2, 2.2, 1];
-        bt.box(M, b[0] - inf, b[1] - inf, b[2] - inf, b[3] + inf, b[4] + inf, b[5] + inf, m.skin, l, col, p.uvs);
+        if (m.onFire > 0 && !m.D.fireImmune) col = [col[0] * 1.2, col[1] * 0.8, col[2] * 0.5, 1];
+        bt.box(M, b[0] - inf, b[1] - inf, b[2] - inf, b[3] + inf, b[4] + inf, b[5] + inf, m.skin, p.glow || glowAll ? 1.15 : l, col, p.uvs);
+        // armatura indossata
+        const ad = m.armor && ARMOR_DRAW[p.n];
+        if (ad) {
+          const it = m.armor[ad[0]];
+          const acol = hurt ? [1, 0.5, 0.5, 1] : m.armorEnch && m.armorEnch[ad[0]] ? MC.glintCol(time) : [1, 1, 1, 1];
+          if (it) {
+            const d = MC.blocks[it];
+            if (d && d.armor) {
+              const e = ad[1], L = T['armor_' + d.armor.mat];
+              const lay = p.n === 'head' ? [L, L, L, L, L, T['armor_' + d.armor.mat + '_face']] : L;
+              bt.box(M, b[0] - e, p.n === 'leg' ? b[1] + 3 : b[1] - e, b[2] - e, b[3] + e, b[4] + e, b[5] + e, lay, l, acol);
+            }
+          }
+          const boots = p.n === 'leg' && m.armor[3];
+          if (boots) { const d = MC.blocks[boots]; if (d && d.armor) bt.box(M, b[0] - 0.8, b[1] - 0.3, b[2] - 0.8, b[3] + 0.8, b[1] + 4, b[5] + 0.8, T['armor_' + d.armor.mat], l, m.armorEnch && m.armorEnch[3] ? MC.glintCol(time) : acol); }
+        }
+      }
+      // oggetto in mano al giocatore (visuale in terza persona)
+      if (m.isPlayer && m.held && !m.dead) {
+        const arm = m.parts[3];
+        const M = mat4.create();
+        mat4.translate(tA, arm.pv[0], arm.pv[1], arm.pv[2]); mat4.mul(M, base, tA);
+        let ang = sw * 0.8 - 0.25;
+        if (m.swing > 0) ang -= Math.sin(m.swing * 10) * 1.3;
+        mat4.rotX(tB, ang); mat4.mul(M, M, tB);
+        const hd = MC.blocks[m.held.id];
+        const flat = hd.shape === 'item' || hd.shape === 'cross' || hd.shape === 'torch';
+        if (flat) {
+          mat4.translate(tA, 0, -10, -1); mat4.mul(M, M, tA);
+          mat4.rotX(tB, -Math.PI / 2); mat4.mul(M, M, tB);
+          mat4.rotY(tB, Math.PI / 2); mat4.mul(M, M, tB);
+          if (hd.tool) { mat4.rotZ(tB, -0.8); mat4.mul(M, M, tB); }
+          mat4.scale(tA, 16, 16, 16); mat4.mul(M, M, tA);
+          MC.drawItemModel(bt, M, m.held.id, 0.62, l, m.held.ench ? MC.glintCol(time) : null);
+        } else {
+          mat4.translate(tA, 0, -11, -2.5); mat4.mul(M, M, tA);
+          mat4.scale(tA, 16, 16, 16); mat4.mul(M, M, tA);
+          MC.drawItemModel(bt, M, m.held.id, 0.3, l);
+        }
+      }
+      // spada d'oro del piglin zombificato
+      if (m.type === 'zombified_piglin' && !m.dead) {
+        const arm = m.parts[6];
+        const M = mat4.create();
+        mat4.translate(tA, arm.pv[0], arm.pv[1], arm.pv[2]); mat4.mul(M, base, tA);
+        let ang = -sw * 0.8;
+        if (m.swing > 0) ang -= Math.sin(m.swing * 10) * 1.2;
+        if (m.angry > 0) ang -= 0.6;
+        mat4.rotX(tB, ang); mat4.mul(M, M, tB);
+        mat4.translate(tA, 0, -10, -1); mat4.mul(M, M, tA);
+        mat4.rotX(tB, -Math.PI / 2); mat4.mul(M, M, tB);
+        mat4.rotY(tB, Math.PI / 2); mat4.mul(M, M, tB);
+        mat4.rotZ(tB, -0.8); mat4.mul(M, M, tB);
+        mat4.scale(tA, 16, 16, 16); mat4.mul(M, M, tA);
+        MC.drawItemModel(bt, M, B.golden_sword, 0.7, l);
       }
       // arco in mano allo scheletro
       if (m.type === 'skeleton' && !m.dead) {
@@ -549,5 +718,408 @@
         MC.drawItemModel(bt, M, B.bow, 0.7, l);
       }
     }
+  };
+
+  // ================= Nuove creature =================
+  const BI = () => MC.BI;
+  E._extraSpawns = function (world, player, env) {
+    let wolves = 0, cods = 0;
+    for (const m of this.mobs) { if (m.type === 'wolf' && !m.tamed) wolves++; if (m.type === 'cod') cods++; }
+    // lupi nelle foreste di conifere
+    if (wolves < 4 && this.rng() < 0.05) {
+      const a = this.rng() * Math.PI * 2, r = 28 + this.rng() * 30;
+      const x = Math.floor(player.x + Math.cos(a) * r), z = Math.floor(player.z + Math.sin(a) * r);
+      const b = world.biomeAt(x, z);
+      if (world.isReady(x, z) && (b === BI().TAIGA || b === BI().SNOWY_TAIGA || b === BI().FOREST)) {
+        const n = 2 + Math.floor(this.rng() * 3);
+        for (let k = 0; k < n; k++) {
+          const ox = x + Math.floor(this.rng() * 5) - 2, oz = z + Math.floor(this.rng() * 5) - 2;
+          const oy = world.topSolid(ox, oz), g = world.getBlock(ox, oy, oz);
+          if ((g === B.grass || g === B.snowy_grass || g === B.podzol || g === B.coarse_dirt) && !world.getBlock(ox, oy + 1, oz)) this.spawnMob('wolf', ox + 0.5, oy + 1, oz + 0.5);
+        }
+      }
+    }
+    // merluzzi in mare e nei fiumi
+    if (cods < 10 && this.rng() < 0.3) {
+      const a = this.rng() * Math.PI * 2, r = 12 + this.rng() * 30;
+      const x = Math.floor(player.x + Math.cos(a) * r), z = Math.floor(player.z + Math.sin(a) * r);
+      if (world.isReady(x, z)) {
+        const top = world.topSolid(x, z);
+        if (world.getBlock(x, top, z) === B.water && world.getBlock(x, top - 2, z) === B.water) {
+          for (let k = 0; k < 3; k++) this.spawnMob('cod', x + 0.5 + (this.rng() - 0.5) * 2, top - 1 - this.rng(), z + 0.5 + (this.rng() - 0.5) * 2);
+        }
+      }
+    }
+  };
+
+  E._netherSpawns = function (world, player) {
+    let hostile = 0;
+    for (const m of this.mobs) if (!m.tamed && m.type !== 'cod') hostile++;
+    if (hostile >= 14) return;
+    const gen = world.gen;
+    for (let i = 0; i < 3; i++) {
+      const a = this.rng() * Math.PI * 2, r = 16 + this.rng() * 36;
+      const x = Math.floor(player.x + Math.cos(a) * r), z = Math.floor(player.z + Math.sin(a) * r);
+      if (!world.isReady(x, z)) continue;
+      let y = Math.min(MC.NH - 4, Math.floor(player.y) + 16), found = false;
+      for (let k = 0; k < 40; k++, y--) {
+        if (y < 33) break;
+        const b = world.getBlock(x, y, z);
+        if (SOLID[b] && b !== B.bedrock && !world.getBlock(x, y + 1, z) && !world.getBlock(x, y + 2, z)) { found = true; break; }
+      }
+      if (!found) continue;
+      if (world.getBlockLight(x, y + 1, z) > 11) continue;
+      const biome = world.biomeAt(x, z);
+      const rr = this.rng();
+      let t;
+      if (gen.inFortress && gen.inFortress(x, y, z)) t = rr < 0.55 ? 'blaze' : rr < 0.8 ? 'skeleton' : 'magma_cube';
+      else if (biome === BI().CRIMSON) t = rr < 0.85 ? 'zombified_piglin' : 'magma_cube';
+      else if (biome === BI().WARPED) t = rr < 0.9 ? 'enderman' : 'magma_cube';
+      else if (biome === BI().SOUL) t = rr < 0.45 ? 'ghast' : rr < 0.85 ? 'skeleton' : 'enderman';
+      else if (biome === BI().BASALT) t = rr < 0.75 ? 'magma_cube' : 'ghast';
+      else t = rr < 0.55 ? 'zombified_piglin' : rr < 0.72 ? 'ghast' : rr < 0.9 ? 'magma_cube' : 'enderman';
+      if (t === 'ghast') {
+        if (this.mobs.filter((m) => m.type === 'ghast').length >= 3) continue;
+        let ok = true;
+        for (let dy = 2; dy <= 7 && ok; dy++) for (let dx = -2; dx <= 2 && ok; dx += 2) for (let dz = -2; dz <= 2 && ok; dz += 2) if (world.getBlock(x + dx, y + dy, z + dz)) ok = false;
+        if (!ok) continue;
+        this.spawnMob('ghast', x + 0.5, y + 3, z + 0.5);
+      } else if (t === 'enderman' && world.getBlock(x, y + 3, z)) continue;
+      else {
+        const n = t === 'zombified_piglin' ? 1 + Math.floor(this.rng() * 3) : 1;
+        for (let k = 0; k < n; k++) this.spawnMob(t, x + 0.5 + k * 0.3, y + 1, z + 0.5);
+      }
+      hostile++;
+    }
+  };
+
+  E.teleportMob = function (m, world) {
+    for (let t = 0; t < 16; t++) {
+      const x = Math.floor(m.x + (this.rng() - 0.5) * 32), z = Math.floor(m.z + (this.rng() - 0.5) * 32);
+      let y = Math.floor(m.y + (this.rng() - 0.5) * 16);
+      if (!world.isReady(x, z)) continue;
+      for (let k = 0; k < 16 && y > 1; k++, y--) {
+        if (SOLID[world.getBlock(x, y - 1, z)] && !world.getBlock(x, y, z) && !world.getBlock(x, y + 1, z) && !world.getBlock(x, y + 2, z) && !FLUID[world.getBlock(x, y - 1, z)]) {
+          for (let i = 0; i < 20; i++) this.addParticle(m.x + (this.rng() - 0.5), m.y + this.rng() * 2.8, m.z + (this.rng() - 0.5), (this.rng() - 0.5) * 2, (this.rng() - 0.5) * 2, (this.rng() - 0.5) * 2, MC.textures.index.white, [0.7, 0.2, 0.9], 0.8, 0.05, -0.5, true);
+          m.x = x + 0.5; m.y = y; m.z = z + 0.5; m.vx = m.vy = m.vz = 0;
+          const d = Math.hypot(this.game.player.x - m.x, this.game.player.z - m.z);
+          if (d < 24) this.game.audio.teleport();
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  // --- animali domestici (lupi e gatti) ---
+  E._petAI = function (m, dt, world, player, env, pd, bite) {
+    const D = m.D;
+    if (m.sitting) { m.wantSpeed = 0; return pd < 8 ? [player.x, player.y + 1.6, player.z] : null; }
+    let t = m.target && m.target !== 'player' && !m.target.dead ? m.target : null;
+    if (t && (Math.hypot(t.x - m.x, t.z - m.z) > 24 || t.tamed)) t = m.target = null;
+    if (t && bite) {
+      const d = Math.hypot(t.x - m.x, t.z - m.z);
+      this._walkToward(m, t.x, t.z, D.speed * 1.25, dt);
+      if (d < 1.6 && Math.abs(t.y - m.y) < 1.8 && m.attackCd <= 0) { m.attackCd = 0.9; m.swing = 0.3; this.hitMob(t, 4, m.x, m.z, 0.8, m); }
+      return [t.x, t.y + 1, t.z];
+    }
+    if (pd > 14 && player.onGround && !player.flying) {
+      for (let k = 0; k < 10; k++) {
+        const x = Math.floor(player.x + (this.rng() - 0.5) * 5), z = Math.floor(player.z + (this.rng() - 0.5) * 5), y = Math.floor(player.y);
+        if (SOLID[world.getBlock(x, y - 1, z)] && !SOLID[world.getBlock(x, y, z)] && !SOLID[world.getBlock(x, y + 1, z)]) { m.x = x + 0.5; m.y = y; m.z = z + 0.5; m.vx = m.vz = 0; break; }
+      }
+    } else if (pd > 3) this._walkToward(m, player.x, player.z, D.speed * (pd > 7 ? 1.25 : 0.8), dt);
+    return pd < 8 ? [player.x, player.y + 1.6, player.z] : null;
+  };
+
+  E._ai_wolf = function (m, dt, world, player, env, pd, survival, canSee, wander) {
+    const D = m.D;
+    if (m.tamed) return this._petAI(m, dt, world, player, env, pd, true);
+    if (m.angry > 0 && survival && pd < 24) {
+      this._walkToward(m, player.x, player.z, D.speed * 1.2, dt);
+      const d = Math.hypot(player.x - m.x, player.z - m.z);
+      if (d < 1.5 && Math.abs(player.y - m.y) < 1.5 && m.attackCd <= 0) { m.attackCd = 1; m.swing = 0.3; player.damage(3, 'wolf', (player.x - m.x) / (d || 1), (player.z - m.z) / (d || 1)); }
+      return [player.x, player.y + 1.4, player.z];
+    }
+    // i lupi selvatici cacciano pecore
+    const sheep = this.mobs.find((o) => o.type === 'sheep' && !o.dead && Math.hypot(o.x - m.x, o.z - m.z) < 10);
+    if (sheep && this.rng() < 0.4) {
+      this._walkToward(m, sheep.x, sheep.z, D.speed, dt);
+      const d = Math.hypot(sheep.x - m.x, sheep.z - m.z);
+      if (d < 1.5 && m.attackCd <= 0) { m.attackCd = 1.2; this.hitMob(sheep, 3, m.x, m.z, 0.6, m); }
+      return [sheep.x, sheep.y + 1, sheep.z];
+    }
+    wander(0.45);
+    const held = this.game.inventory.held();
+    return pd < 7 && held && held.id === B.bone ? [player.x, player.y + 1.6, player.z] : null;
+  };
+
+  E._ai_cat = function (m, dt, world, player, env, pd, survival, canSee, wander) {
+    if (m.tamed) return this._petAI(m, dt, world, player, env, pd, false);
+    const held = this.game.inventory.held();
+    const lure = held && (held.id === B.cod || held.id === B.cooked_cod);
+    if (lure && pd < 10 && pd > 2) { this._walkToward(m, player.x, player.z, m.D.speed * 0.7, dt); return [player.x, player.y + 1.6, player.z]; }
+    if (!lure && pd < 4 && player.sprinting) { this._walkToward(m, m.x - (player.x - m.x), m.z - (player.z - m.z), m.D.speed * 1.6, dt); return null; }
+    wander(0.4, m.home ? m.home.split(',').map(Number) : null);
+    return pd < 5 ? [player.x, player.y + 1.6, player.z] : null;
+  };
+
+  E._ai_enderman = function (m, dt, world, player, env, pd, survival, canSee, wander) {
+    const D = m.D;
+    // si arrabbia se lo guardi negli occhi
+    if (survival && m.angry <= 0 && pd < 48) {
+      const e = player.eye, dir = player.dir();
+      const hx = m.x - e[0], hy = m.y + 2.55 - e[1], hz = m.z - e[2], hd = Math.hypot(hx, hy, hz);
+      const dot = (hx * dir[0] + hy * dir[1] + hz * dir[2]) / hd;
+      if (dot > 1 - 0.025 / Math.max(1, hd * 0.25) && this.lineOfSight(world, e[0], e[1], e[2], m.x, m.y + 2.55, m.z)) {
+        m.angry = 30; this.game.audio.mob('enderman', true, 1);
+      }
+    }
+    // acqua e pioggia lo feriscono
+    const wet = m.inWater || (this.game._rainLevel() > 0.5 && world.getSky(Math.floor(m.x), Math.floor(m.y + 2), Math.floor(m.z)) >= 15);
+    if (wet) { m.wetT = (m.wetT || 0) + dt; if (m.wetT > 1) { m.wetT = 0; m.hp -= 1; m.hurt = 0.3; if (m.hp <= 0) { this.killMob(m); return null; } this.teleportMob(m, world); } }
+    if (m.angry > 0 && survival && pd < 40) {
+      const d = Math.hypot(player.x - m.x, player.z - m.z);
+      this._walkToward(m, player.x, player.z, D.speed * 1.9, dt);
+      if ((m.hitH && this.rng() < dt * 1.5) || (d > 12 && this.rng() < dt * 0.3)) {
+        // teletrasporto vicino al giocatore
+        const ox = m.x, oy = m.y, oz = m.z;
+        m.x = player.x + (this.rng() - 0.5) * 8; m.z = player.z + (this.rng() - 0.5) * 8; m.y = player.y + 4;
+        if (!this.teleportMob(m, world)) { m.x = ox; m.y = oy; m.z = oz; }
+      }
+      if (d < 1.6 && Math.abs(player.y - m.y) < 2.5 && m.attackCd <= 0) { m.attackCd = 1; m.swing = 0.4; player.damage(7, 'enderman', (player.x - m.x) / (d || 1), (player.z - m.z) / (d || 1)); }
+      m.jitter = 1;
+      return [player.x, player.y + 1.6, player.z];
+    }
+    m.jitter = 0;
+    if (this.rng() < dt * 0.02) this.teleportMob(m, world);
+    wander(0.35);
+    return null;
+  };
+
+  E._ai_cod = function (m, dt, world, player, env, pd) {
+    const D = m.D;
+    if (m.inWater) {
+      m.dry = 0;
+      if (m.timer <= 0) { m.timer = 1 + this.rng() * 3; const a = this.rng() * 6.28; m.wx = Math.cos(a); m.wz = Math.sin(a); m.wy = (this.rng() - 0.5) * 0.8; }
+      if (pd < 3) m.panic = 1;
+      const above = world.getBlock(Math.floor(m.x), Math.floor(m.y + 0.6), Math.floor(m.z));
+      if (above !== B.water && m.wy > 0) m.wy = -0.4;
+      m.dirX = m.wx || 0; m.dirZ = m.wz || 0; m.wantSpeed = D.speed * (m.panic > 0 ? 2.2 : 1);
+      if (m.panic > 0) m.panic -= dt;
+      m.vy += ((m.wy || 0) * 2 - m.vy) * Math.min(1, dt * 2);
+      if (m.hitH) m.timer = 0;
+    } else {
+      m.wantSpeed = 0;
+      if (m.onGround && m.jumpCd <= 0) { m.vy = 4; m.vx = (this.rng() - 0.5) * 3; m.vz = (this.rng() - 0.5) * 3; m.jumpCd = 0.5 + this.rng() * 0.5; }
+      m.dry = (m.dry || 0) + dt;
+      if (m.dry > 5) { m.dry = 4; m.hp -= 1; m.hurt = 0.3; if (m.hp <= 0) this.killMob(m); }
+    }
+    return null;
+  };
+
+  E._ai_zombified_piglin = function (m, dt, world, player, env, pd, survival, canSee, wander) {
+    const D = m.D;
+    if (m.angry > 0 && survival && pd < 32) {
+      const d = Math.hypot(player.x - m.x, player.z - m.z);
+      this._walkToward(m, player.x, player.z, D.speed * 1.3, dt);
+      if (d < 1.7 && Math.abs(player.y - m.y) < 1.8 && m.attackCd <= 0) { m.attackCd = 1; m.swing = 0.3; player.damage(5, 'zombified_piglin', (player.x - m.x) / (d || 1), (player.z - m.z) / (d || 1)); }
+      return [player.x, player.y + 1.5, player.z];
+    }
+    wander(0.35);
+    return pd < 6 ? [player.x, player.y + 1.6, player.z] : null;
+  };
+
+  E._ai_ghast = function (m, dt, world, player, env, pd, survival) {
+    const D = m.D;
+    if (m.timer <= 0 || m.hitH || m.gx === undefined) {
+      m.timer = 3 + this.rng() * 5;
+      m.gx = m.x + (this.rng() - 0.5) * 24; m.gz = m.z + (this.rng() - 0.5) * 24;
+      m.gy = Math.max(36, Math.min(MC.NH - 12, (survival ? player.y + 4 : m.y) + (this.rng() - 0.3) * 10));
+    }
+    const dx = m.gx - m.x, dz = m.gz - m.z;
+    if (Math.hypot(dx, dz) > 1.5) { this._walkToward(m, m.gx, m.gz, D.speed, dt); }
+    m.vy += ((m.gy - m.y) * 0.4 - m.vy) * Math.min(1, dt);
+    let look = null;
+    const eyeY = m.y + 2.2;
+    const d3 = Math.hypot(player.x - m.x, player.y + 1.6 - eyeY, player.z - m.z);
+    if (survival && d3 < 64 && this.lineOfSight(world, m.x, eyeY, m.z, player.x, player.y + 1.6, player.z)) {
+      look = [player.x, player.y + 1.6, player.z];
+      m.yaw = Math.atan2(-(player.x - m.x), -(player.z - m.z));
+      m.charge = (m.charge || 0) + dt;
+      if (m.charge > 0.5 && !m.warned) { m.warned = true; this.game.audio.mob('ghast', false, Math.max(0.3, 1 - d3 / 64)); }
+      if (m.charge >= 1.3) {
+        const vx = (player.x - m.x) / d3, vy = (player.y + 1.2 - eyeY) / d3, vz = (player.z - m.z) / d3;
+        this.throwProjectile('fireball', m.x + vx * 2.4, eyeY + vy * 2.4, m.z + vz * 2.4, vx * 14, vy * 14, vz * 14, m);
+        this.game.audio.fireball();
+        m.charge = -2 - this.rng() * 2; m.warned = false;
+      }
+    } else m.charge = Math.min(m.charge || 0, 0) + dt * 0.5;
+    const want = 1000 + MC.mobs.skinIndex[(m.charge > 0.6 ? 'ghast:shoot' : 'ghast:default')];
+    m.skin = want;
+    return look;
+  };
+
+  E._ai_blaze = function (m, dt, world, player, env, pd, survival, canSee, wander) {
+    const D = m.D;
+    const t = performance.now() / 1000;
+    if (this.rng() < dt * 3) this.smoke(m.x + (this.rng() - 0.5) * 0.8, m.y + this.rng() * 1.6, m.z + (this.rng() - 0.5) * 0.8, 1, false);
+    const d3 = Math.hypot(player.x - m.x, player.y - m.y, player.z - m.z);
+    if (survival && d3 < 48 && (m.angry > 0 || d3 < 32) && canSee()) {
+      const d = Math.hypot(player.x - m.x, player.z - m.z);
+      if (d > 6) this._walkToward(m, player.x, player.z, D.speed, dt);
+      else { const a = Math.atan2(player.z - m.z, player.x - m.x) + Math.PI / 2 * m.strafe; m.dirX = Math.cos(a); m.dirZ = Math.sin(a); m.wantSpeed = D.speed * 0.4; }
+      const ty = player.y + 1.5 + Math.sin(t * 1.3 + m.x) * 0.8;
+      m.vy += ((ty - m.y) * 1.2 - m.vy) * Math.min(1, dt * 2);
+      if (m.shootCd <= 0) {
+        m.burst = (m.burst || 0) + 1;
+        m.shootCd = m.burst < 3 ? 0.3 : 3 + this.rng() * 2;
+        if (m.burst >= 3) m.burst = 0;
+        const sx = m.x, sy = m.y + 1.4, sz = m.z;
+        const vx = (player.x - sx) / d3, vy = (player.y + 1.2 - sy) / d3, vz = (player.z - sz) / d3;
+        const sp = (this.rng() - 0.5) * 0.12;
+        this.throwProjectile('small_fireball', sx + vx, sy + vy, sz + vz, (vx + sp) * 16, vy * 16, (vz - sp) * 16, m);
+        this.game.audio.fireball();
+      }
+      if (d < 1.6 && m.attackCd <= 0) { m.attackCd = 1; player.damage(6, 'blaze'); player.fire = Math.max(player.fire || 0, 3); }
+      return [player.x, player.y + 1.6, player.z];
+    }
+    m.vy += ((Math.sin(t + m.z) * 0.6) - m.vy) * Math.min(1, dt * 2);
+    // si allontana poco dal posto dove è nato
+    wander(0.2);
+    return null;
+  };
+
+  E._ai_magma_cube = function (m, dt, world, player, env, pd, survival) {
+    const D = m.D;
+    const hunt = survival && pd < 16;
+    m.wantSpeed = 0;
+    if (m.onGround) {
+      m.squish = Math.max(0, (m.squish || 0) - dt * 4);
+      m.vx *= Math.max(0, 1 - dt * 12); m.vz *= Math.max(0, 1 - dt * 12);
+      if (m.jumpCd <= 0) {
+        let dx, dz;
+        if (hunt) { const d = Math.hypot(player.x - m.x, player.z - m.z) || 1; dx = (player.x - m.x) / d; dz = (player.z - m.z) / d; }
+        else { const a = this.rng() * 6.28; dx = Math.cos(a); dz = Math.sin(a); }
+        m.yaw = Math.atan2(-dx, -dz);
+        const sp = (hunt ? 2.5 : 1.2) + D.size * 0.5;
+        m.vx = dx * sp; m.vz = dz * sp; m.vy = 6 + D.size * 0.9;
+        m.jumpCd = (hunt ? 0.8 : 1.5) + this.rng() * 1.2;
+        m.squish = 1;
+        this.game.audio.mob('magma_cube', false, Math.max(0, 1 - pd / 16) * 0.6);
+      }
+    } else m.squish = Math.min(1.6, (m.squish || 0) + dt * 2.5);
+    const d = Math.hypot(player.x - m.x, player.y - m.y, player.z - m.z);
+    if (survival && d < D.w / 2 + 0.7 && m.attackCd <= 0) { m.attackCd = 1; player.damage([3, 4, 6][D.size - 1] || 3, 'magma_cube', (player.x - m.x) / (d || 1), (player.z - m.z) / (d || 1)); }
+    m.bodyYaw = m.yaw;
+    return hunt ? [player.x, player.y + 1, player.z] : null;
+  };
+
+  // ---------------- Proiettili: palle di fuoco, perle, ampolle ----------------
+  E.throwProjectile = function (kind, x, y, z, vx, vy, vz, owner) {
+    this.projectiles.push({ kind, x, y, z, vx, vy, vz, owner: owner || 'player', age: 0 });
+    if (this.projectiles.length > 100) this.projectiles.shift();
+  };
+  E.raycastProjectiles = function (ox, oy, oz, dx, dy, dz, maxDist) {
+    let best = null;
+    for (const pr of this.projectiles) {
+      if (pr.kind !== 'fireball' && pr.kind !== 'small_fireball') continue;
+      const r = pr.kind === 'fireball' ? 0.8 : 0.4;
+      const h = MC.rayBox(ox, oy, oz, dx, dy, dz, [pr.x - r, pr.y - r, pr.z - r, pr.x + r, pr.y + r, pr.z + r]);
+      if (h && h.t <= maxDist && (!best || h.t < best.t)) best = { pr, t: h.t };
+    }
+    return best;
+  };
+  E._projImpact = function (pr, world, player, mob) {
+    const g = this.game;
+    if (pr.kind === 'pearl') {
+      if (pr.owner === 'player' && !player.dead) {
+        for (let i = 0; i < 24; i++) this.addParticle(player.x, player.y + this.rng() * 1.8, player.z, (this.rng() - 0.5) * 3, (this.rng() - 0.5) * 3, (this.rng() - 0.5) * 3, MC.textures.index.white, [0.6, 0.2, 0.9], 0.8, 0.05, -0.5, true);
+        let ty = pr.y;
+        while (SOLID[world.getBlock(Math.floor(pr.x), Math.floor(ty), Math.floor(pr.z))] && ty < pr.y + 3) ty = Math.floor(ty) + 1;
+        player.x = pr.x; player.y = ty; player.z = pr.z; player.vx = player.vy = player.vz = 0; player.fallDist = 0;
+        g.audio.teleport();
+        player.damage(5, 'pearl');
+      }
+      return;
+    }
+    if (pr.kind === 'xpbottle') {
+      this.spawnXp(pr.x, pr.y, pr.z, 3 + Math.floor(this.rng() * 9));
+      for (let i = 0; i < 16; i++) this.addParticle(pr.x, pr.y, pr.z, (this.rng() - 0.5) * 4, this.rng() * 3, (this.rng() - 0.5) * 4, MC.textures.index.white, [0.5, 0.8, 1], 0.6, 0.04, 10, true);
+      g.audio._mat(B.glass, 'break');
+      return;
+    }
+    if (pr.kind === 'fireball') {
+      if (mob && mob.type === 'ghast' && pr.owner === 'player') { mob.lastPlayerHit = 5; this.hitMob(mob, 1000, pr.x, pr.z, 1, 'player'); }
+      g.explode(pr.x, pr.y, pr.z, 1.2);
+      if (Math.hypot(player.x - pr.x, player.y + 1 - pr.y, player.z - pr.z) < 2.5 && player.mode === 'survival') player.fire = Math.max(player.fire || 0, 4);
+      return;
+    }
+    if (pr.kind === 'small_fireball') {
+      if (mob) { if (!mob.D.fireImmune) { mob.onFire = 5; this.hitMob(mob, 5, pr.x - pr.vx, pr.z - pr.vz, 0.4, pr.owner === 'player' ? 'player' : pr.owner); } }
+      else if (pr.hitPlayer) { player.damage(5, 'fireball', pr.vx / 16, pr.vz / 16); if (player.mode === 'survival') player.fire = Math.max(player.fire || 0, 5); }
+      for (let i = 0; i < 6; i++) this.flame(pr.x + (this.rng() - 0.5) * 0.5, pr.y + (this.rng() - 0.5) * 0.5, pr.z + (this.rng() - 0.5) * 0.5);
+    }
+  };
+  E.updateProjectiles = function (dt, world, player) {
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const pr = this.projectiles[i];
+      pr.age += dt;
+      if (pr.age > 15 || pr.y < -20) { this.projectiles.splice(i, 1); continue; }
+      const grav = pr.kind === 'pearl' || pr.kind === 'xpbottle';
+      if (grav) { pr.vy -= 20 * dt; pr.vx *= 1 - dt * 0.1; pr.vz *= 1 - dt * 0.1; }
+      if (pr.kind === 'fireball' && this.rng() < 0.6) this.smoke(pr.x, pr.y, pr.z, 1, false);
+      if (pr.kind === 'small_fireball' && this.rng() < 0.5) this.flame(pr.x, pr.y, pr.z);
+      const steps = Math.max(1, Math.ceil(Math.hypot(pr.vx, pr.vy, pr.vz) * dt / 0.25));
+      const sdt = dt / steps;
+      const rad = pr.kind === 'fireball' ? 0.6 : 0.2;
+      let hit = false;
+      for (let k = 0; k < steps && !hit; k++) {
+        const nx = pr.x + pr.vx * sdt, ny = pr.y + pr.vy * sdt, nz = pr.z + pr.vz * sdt;
+        // giocatore
+        if (pr.owner !== 'player' && !player.dead && pr.age > 0.1 && Math.abs(nx - player.x) < 0.3 + rad && Math.abs(nz - player.z) < 0.3 + rad && ny > player.y - rad && ny < player.y + 1.8 + rad) {
+          pr.x = nx; pr.y = ny; pr.z = nz; pr.hitPlayer = true; this._projImpact(pr, world, player, null); hit = true; break;
+        }
+        for (const m of this.mobs) {
+          if (m.dead || m === pr.owner || (pr.age < 0.15 && pr.owner === 'player')) continue;
+          const hw = m.D.w / 2 + rad;
+          if (Math.abs(nx - m.x) < hw && Math.abs(nz - m.z) < hw && ny > m.y - rad && ny < m.y + m.D.h + rad) {
+            pr.x = nx; pr.y = ny; pr.z = nz; this._projImpact(pr, world, player, m); hit = true; break;
+          }
+        }
+        if (hit) break;
+        const b = world.getBlock(Math.floor(nx), Math.floor(ny), Math.floor(nz));
+        if ((SOLID[b] && MC.getCollisionBox(b)) || (FLUID[b] && grav)) {
+          if (pr.kind === 'pearl') { pr.x -= pr.vx * sdt * 0.5; pr.y -= pr.vy * sdt * 0.5; pr.z -= pr.vz * sdt * 0.5; }
+          this._projImpact(pr, world, player, null); hit = true; break;
+        }
+        pr.x = nx; pr.y = ny; pr.z = nz;
+      }
+      if (hit) this.projectiles.splice(i, 1);
+    }
+  };
+  E.renderProjectiles = function (bt, env, cam, world, time) {
+    const T = MC.textures.index;
+    for (const pr of this.projectiles) {
+      const M = mat4.translate(mat4.create(), pr.x - cam.x, pr.y - cam.y, pr.z - cam.z);
+      if (pr.kind === 'fireball' || pr.kind === 'small_fireball') {
+        const s = pr.kind === 'fireball' ? 0.5 : 0.16;
+        mat4.rotY(tA, time * 5); mat4.mul(M, M, tA);
+        mat4.rotX(tA, time * 3); mat4.mul(M, M, tA);
+        bt.box(M, -s, -s, -s, s, s, s, T.fireball, 1.3, [1, 1, 1, 1]);
+      } else {
+        const l = MC.lightAt(world, pr.x, pr.y, pr.z, env);
+        mat4.rotY(tA, time * 6); mat4.mul(M, M, tA);
+        mat4.translate(tA, 0, -0.15, 0); mat4.mul(M, M, tA);
+        MC.drawItemModel(bt, M, pr.kind === 'pearl' ? B.ender_pearl : B.experience_bottle, 0.3, l);
+      }
+    }
+  };
+
+  // salvataggio degli animali domestici
+  E.petList = function () {
+    const out = this.mobs.filter((m) => m.tamed && !m.dead).map((m) => ({ type: m.type, x: m.x, y: m.y, z: m.z, sitting: !!m.sitting, variant: m.variant }));
+    if (this.pendingPets) for (const q of this.pendingPets) out.push(q);
+    return out;
   };
 })();

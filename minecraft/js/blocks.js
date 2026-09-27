@@ -303,6 +303,42 @@
   add('oak_trapdoor', 'Botola di quercia', mdl(trapModel, { tex: t('trapdoor'), hardness: 3, sound: 'wood', cat: 'deco', solid: true, interact: 'trapdoor', trapdoor: true }));
   for (const [c, n] of MC.DYE_COLORS) add(c + '_carpet', 'Tappeto ' + masc(n), mdl(() => [[0, 0, 0, 1, H, 1]], { texFrom: c + '_wool', hardness: 0.1, sound: 'wool', cat: 'color', solid: true, carpet: true }));
 
+  // ---------------- Nether ----------------
+  const nyl = (b) => b === MC.B.crimson_nylium || b === MC.B.warped_nylium || b === MC.B.soul_soil || b === MC.B.netherrack || plantGround(b);
+  add('soul_sand', 'Sabbia delle anime', { tex: t('soul_sand'), hardness: 0.5, sound: 'sand', cat: 'nature', slow: 0.45 });
+  add('soul_soil', 'Terra delle anime', { tex: t('soul_soil'), hardness: 0.5, sound: 'sand', cat: 'nature' });
+  add('nether_bricks', 'Mattoni del Nether', { tex: t('nether_bricks'), hardness: 2, cat: 'build', blast: 6 });
+  add('red_nether_bricks', 'Mattoni rossi del Nether', { tex: t('red_nether_bricks'), hardness: 2, cat: 'build', blast: 6 });
+  add('nether_brick_fence', 'Staccionata di mattoni del Nether', mdl(connModel(2 * H, H, [[6 * H, 9 * H], [12 * H, 15 * H]]), { texFrom: 'nether_bricks', hardness: 2, sound: 'stone', cat: 'build', solid: true, conn: 'fence', tall: true, blast: 6 }));
+  add('nether_brick_slab', 'Lastra di mattoni del Nether', mdl(slabModel, { texFrom: 'nether_bricks', hardness: 2, sound: 'stone', cat: 'build', solid: true, slab: 'nether_bricks', blast: 6 }));
+  add('nether_brick_stairs', 'Scalini di mattoni del Nether', mdl(stairModel, { texFrom: 'nether_bricks', hardness: 2, sound: 'stone', cat: 'build', solid: true, stairs: true, blast: 6 }));
+  add('nether_quartz_ore', 'Minerale di quarzo del Nether', { tex: t('nether_quartz_ore'), hardness: 3, cat: 'ores', blast: 3 });
+  add('nether_gold_ore', 'Minerale d\'oro del Nether', { tex: t('nether_gold_ore'), hardness: 3, cat: 'ores', blast: 3 });
+  add('magma_block', 'Blocco di magma', { tex: t('magma'), hardness: 0.5, emit: 3, emissive: true, cat: 'nature', hot: true });
+  add('basalt', 'Basalto', { tex: tsb('basalt_top', 'basalt_side'), axis: true, hardness: 1.25, cat: 'nature', blast: 4 });
+  add('polished_basalt', 'Basalto levigato', { tex: tsb('polished_basalt_top', 'polished_basalt_side'), axis: true, hardness: 1.25, cat: 'build', blast: 4 });
+  add('blackstone', 'Pietranera', { tex: tsb('blackstone_top', 'blackstone'), hardness: 1.5, cat: 'nature', blast: 6 });
+  add('crimson_nylium', 'Nylium cremisi', { tex: { top: 'crimson_nylium', side: 'crimson_nylium_side', bottom: 'netherrack' }, hardness: 0.4, drop: 'netherrack', cat: 'nature' });
+  add('warped_nylium', 'Nylium distorto', { tex: { top: 'warped_nylium', side: 'warped_nylium_side', bottom: 'netherrack' }, hardness: 0.4, drop: 'netherrack', cat: 'nature' });
+  add('crimson_stem', 'Gambo cremisi', { tex: tsb('crimson_stem_top', 'crimson_stem'), axis: true, hardness: 2, sound: 'wood', cat: 'nature' });
+  add('warped_stem', 'Gambo distorto', { tex: tsb('warped_stem_top', 'warped_stem'), axis: true, hardness: 2, sound: 'wood', cat: 'nature' });
+  add('nether_wart_block', 'Blocco di verruca del Nether', { tex: t('nether_wart_block'), hardness: 1, sound: 'grass', cat: 'nature' });
+  add('warped_wart_block', 'Blocco di verruca distorta', { tex: t('warped_wart_block'), hardness: 1, sound: 'grass', cat: 'nature' });
+  add('shroomlight', 'Fungoluce', { tex: t('shroomlight'), emit: 15, emissive: true, hardness: 1, sound: 'grass', cat: 'deco' });
+  add('crimson_planks', 'Assi cremisi', { tex: t('crimson_planks'), hardness: 2, sound: 'wood', cat: 'build' });
+  add('warped_planks', 'Assi distorte', { tex: t('warped_planks'), hardness: 2, sound: 'wood', cat: 'build' });
+  add('crimson_fungus', 'Fungo cremisi', plant('crimson_fungus', '', { wave: 0, support: nyl }));
+  add('warped_fungus', 'Fungo distorto', plant('warped_fungus', '', { wave: 0, support: nyl }));
+  add('crimson_roots', 'Radici cremisi', plant('crimson_roots', '', { support: nyl, replaceable: true }));
+  add('warped_roots', 'Radici distorte', plant('warped_roots', '', { support: nyl, replaceable: true }));
+  add('nether_wart', 'Verruca del Nether', { shape: 'crop', stages: ['nether_wart_0', 'nether_wart_0', 'nether_wart_1', 'nether_wart_2'], opaque: false, solid: false, lightOpacity: 0, tex: t('nether_wart_2'), hardness: 0, sound: 'grass', support: (b) => b === MC.B.soul_sand, creative: false, cat: 'nature', drop: 0, maxStage: 3 });
+  // portale: meta 0 = piano lungo X, 1 = piano lungo Z
+  add('nether_portal', 'Portale del Nether', mdl((m) => (m & 1 ? [[6 * H, 0, 0, 10 * H, 1, 1]] : [[0, 0, 6 * H, 1, 1, 10 * H]]), { tex: t('portal'), pass: 'translucent', solid: false, selectable: false, emit: 11, emissive: true, hardness: -1, drop: 0, creative: false, cat: 'deco', portal: true, sound: 'glass', blast: 0 }));
+  add('enchanting_table', 'Tavolo per incantesimi', mdl(() => [[0, 0, 0, 1, 12 * H, 1]], { tex: { top: 'enchant_top', side: 'enchant_side', bottom: 'obsidian' }, hardness: 5, cat: 'deco', solid: true, emit: 7, interact: 'enchant', blast: 1200, lightOpacity: 0 }));
+  add('crimson_slab', 'Lastra cremisi', mdl(slabModel, { texFrom: 'crimson_planks', hardness: 2, sound: 'wood', cat: 'build', solid: true, slab: 'crimson_planks' }));
+  add('warped_slab', 'Lastra distorta', mdl(slabModel, { texFrom: 'warped_planks', hardness: 2, sound: 'wood', cat: 'build', solid: true, slab: 'warped_planks' }));
+  add('quartz_bricks', 'Mattoni di quarzo', { tex: t('quartz_bricks'), hardness: 0.8, cat: 'build' });
+
   // ---------------- Oggetti (non si piazzano: ID da 256) ----------------
   nextId = 256;
   const item = (key, name, p) => add(key, name, Object.assign({ shape: 'item', item: true, opaque: false, solid: false, lightOpacity: 0, tex: t(key), cat: 'items', hardness: 0, selectable: false }, p || {}));
@@ -347,6 +383,37 @@
   MC.EGG_COLORS = EGGS;
   for (const [m, n] of EGGS) item(m + '_spawn_egg', 'Uovo generatore di ' + n, { cat: 'eggs', egg: m, tex: t('egg_' + m) });
 
+  // materiali del Nether e vari
+  item('quartz', 'Quarzo del Nether');
+  item('gold_nugget', 'Pepita d\'oro');
+  item('glowstone_dust', 'Polvere di pietraluce');
+  item('nether_brick', 'Mattone del Nether');
+  item('blaze_rod', 'Verga di blaze');
+  item('blaze_powder', 'Polvere di blaze');
+  item('ghast_tear', 'Lacrima di ghast');
+  item('magma_cream', 'Crema di magma');
+  item('ender_pearl', 'Perla di ender', { stack: 16, pearl: true, cat: 'tools' });
+  item('bone_meal', 'Farina d\'ossa', { boneMeal: true });
+  item('paper', 'Carta');
+  item('book', 'Libro');
+  item('nether_wart_item', 'Verruca del Nether', { tex: t('nether_wart_item'), plant: 'nether_wart', plantOn: 'soul_sand' });
+  item('cod', 'Merluzzo crudo', { cat: 'food', food: { hunger: 2, sat: 0.4 } });
+  item('cooked_cod', 'Merluzzo cotto', { cat: 'food', food: { hunger: 5, sat: 6 } });
+  item('experience_bottle', 'Ampolla di esperienza', { xpBottle: true, cat: 'tools' });
+  // armature: slot 0 elmo, 1 corazza, 2 gambali, 3 stivali
+  const ARMOR_MATS = [['leather', 'di pelle', [1, 3, 2, 1], 5, 0], ['golden', 'd\'oro', [2, 5, 3, 1], 7, 0], ['chainmail', 'di maglia', [2, 5, 4, 1], 15, 0], ['iron', 'di ferro', [2, 6, 5, 2], 15, 0], ['diamond', 'di diamante', [3, 8, 6, 3], 33, 2]];
+  const ARMOR_PIECES = [['helmet', 'Elmo', 11], ['chestplate', 'Corazza', 16], ['leggings', 'Gambali', 15], ['boots', 'Stivali', 13]];
+  MC.ARMOR_MATS = ARMOR_MATS; MC.ARMOR_PIECES = ARMOR_PIECES;
+  for (const [mat, mn, defs, mul, tough] of ARMOR_MATS) {
+    ARMOR_PIECES.forEach(([pc, pn, base], slot) => {
+      item(mat + '_' + pc, pn + ' ' + mn, { cat: 'tools', stack: 1, armor: { slot, def: defs[slot], tough, mat }, durability: base * mul });
+    });
+  }
+  const EGGS2 = [['wolf', 'lupo', [215, 215, 215], [206, 175, 150]], ['cat', 'gatto', [239, 200, 130], [110, 80, 50]], ['enderman', 'enderman', [22, 22, 22], [10, 10, 10]], ['cod', 'merluzzo', [193, 167, 118], [230, 190, 140]],
+    ['zombified_piglin', 'piglin zombificato', [234, 150, 150], [77, 110, 45]], ['ghast', 'ghast', [249, 249, 249], [188, 188, 188]], ['blaze', 'blaze', [246, 178, 10], [255, 250, 150]], ['magma_cube', 'cubo di magma', [52, 10, 0], [252, 252, 0]]];
+  MC.EGG_COLORS = EGGS.concat(EGGS2);
+  for (const [m, n] of EGGS2) item(m + '_spawn_egg', 'Uovo generatore di ' + n, { cat: 'eggs', egg: m, tex: t('egg_' + m) });
+
   // Risoluzione dei drop in forma di chiave
   const defs = blocks.filter(Boolean);
   for (const d of defs) {
@@ -356,13 +423,13 @@
   }
   // attrezzi adatti e livello di raccolta
   const LEVEL = { iron_ore: 1, copper_ore: 1, lapis_ore: 1, lapis_block: 1, iron_block: 1, copper_block: 1, gold_ore: 2, gold_block: 2, diamond_ore: 2, diamond_block: 2, emerald_ore: 2, emerald_block: 2, redstone_ore: 2, redstone_block: 2, obsidian: 3 };
-  const SHOVEL = ['dirt', 'grass', 'sand', 'red_sand', 'gravel', 'clay', 'snow', 'snowy_grass', 'podzol', 'coarse_dirt', 'farmland', 'dirt_path', 'moss_block'];
+  const SHOVEL = ['dirt', 'grass', 'sand', 'red_sand', 'gravel', 'clay', 'snow', 'snowy_grass', 'podzol', 'coarse_dirt', 'farmland', 'dirt_path', 'moss_block', 'soul_sand', 'soul_soil'];
   for (const d of defs) {
     if (d.item || d.hardness <= 0) continue;
     if (SHOVEL.includes(d.key)) d.tool = 'shovel';
     else if (d.sound === 'wood') d.tool = 'axe';
     else if ((d.sound === 'stone' || d.sound === 'metal') && d.key !== 'bedrock') { d.tool = 'pickaxe'; d.needsTool = true; }
-    else if (d.key.endsWith('_leaves')) d.tool = 'hoe';
+    else if (d.key.endsWith('_leaves') || d.key.endsWith('wart_block') || d.key === 'shroomlight') d.tool = 'hoe';
     d.level = LEVEL[d.key] || 0;
   }
   const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
@@ -386,6 +453,15 @@
   }
   dropFn('wheat', (meta) => (meta >= 7 ? [[byKey.wheat_item, 1], [byKey.wheat_seeds, rnd(1, 3)]] : [[byKey.wheat_seeds, 1]]));
   dropFn('oak_door', () => [[byKey.oak_door, 1]]);
+  dropFn('nether_quartz_ore', () => [[byKey.quartz, 1]]);
+  dropFn('nether_gold_ore', () => [[byKey.gold_nugget, rnd(2, 6)]]);
+  dropFn('glowstone', () => [[byKey.glowstone_dust, rnd(2, 4)]]);
+  dropFn('nether_wart', (meta) => [[byKey.nether_wart_item, meta >= 3 ? rnd(2, 4) : 1]]);
+  // minerali che beneficiano di Fortuna
+  for (const k of ['coal_ore', 'diamond_ore', 'emerald_ore', 'lapis_ore', 'redstone_ore', 'nether_quartz_ore', 'nether_gold_ore', 'glowstone']) blocks[byKey[k]].fortune = true;
+  // esperienza rilasciata dai minerali
+  const XPO = { coal_ore: [0, 2], diamond_ore: [3, 7], emerald_ore: [3, 7], lapis_ore: [2, 5], redstone_ore: [1, 5], nether_quartz_ore: [2, 5], nether_gold_ore: [0, 1] };
+  for (const k in XPO) blocks[byKey[k]].xp = XPO[k];
   MC.defs = defs;
 
   // Array di lookup veloci per il mesher e la luce

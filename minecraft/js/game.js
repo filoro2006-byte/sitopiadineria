@@ -42,6 +42,7 @@
       this.entities = new MC.Entities(this);
       this.inventory.onChange = () => { this.ui.updateHotbar(); };
       this.player.onHurt = (a, cause) => { this.lastHurt = cause; this.audio.hurt(); };
+      this.player.reduceDamage = (a, cause) => MC.enchant.reduce(this.inventory, a, cause, Math.random);
       this.player.onStep = (id) => this.audio.step(id);
       this.player.onLand = (d, id) => { if (d > 1.2) this.audio.land(id); };
       this.player.onSplash = () => { this.audio.splash(); this.entities.splash(this.player.x, this.player.y + 0.3, this.player.z); };
@@ -181,7 +182,7 @@
     _keyDown(e) {
       const c = e.code;
       if (e.target && e.target.tagName === 'INPUT') return;
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'F1', 'F3', 'Tab', 'Slash', 'Quote'].includes(c) && this.world) e.preventDefault();
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'F1', 'F3', 'F5', 'Tab', 'Slash', 'Quote'].includes(c) && this.world) e.preventDefault();
       if (this.state === 'playing') {
         if (MOVE_KEYS.has(c)) this.keys.add(c);
         if (e.repeat) return;
@@ -198,6 +199,7 @@
         if (c === 'Slash') { e.preventDefault(); this.openChat('/'); }
         if (c === 'F3') { this.showDebug = this.ui.toggleDebug(); }
         if (c === 'F1') { this.hudHidden = !this.hudHidden; this.ui.showHUD(!this.hudHidden); }
+        if (c === 'F5' || c === 'KeyV') this.cycleView();
         if (c === 'Escape' && !this.locked) this.pause();
       } else if (this.state === 'inventory') {
         if (c === 'KeyE' || c === 'Escape') { e.preventDefault(); this.closeInventory(); }
@@ -217,6 +219,39 @@
       if (e.button === 0) { this.mouse.left = true; this.breakCd = 0; this.attackCd = Math.min(this.attackCd, 0); }
       if (e.button === 2) { this.mouse.right = true; this.useCd = 0; }
       if (e.button === 1) this.pickBlock();
+    }
+
+    cycleView() {
+      this.thirdPerson = ((this.thirdPerson || 0) + 1) % 3;
+      this.ui.chat(['Visuale in prima persona', 'Visuale in terza persona (da dietro)', 'Visuale in terza persona (di fronte)'][this.thirdPerson]);
+    }
+
+    // modello del giocatore per la visuale in terza persona
+    _updatePlayerModel(dt) {
+      const p = this.player, en = this.entities;
+      if (!this.thirdPerson || p.dead) { en.playerMob = null; return; }
+      let pm = en.playerMob;
+      if (!pm) {
+        const D = MC.mobs.DEFS.player;
+        pm = en.playerMob = { type: 'player', D, M: D, isPlayer: true, parts: MC.mobs.models.player, skin: 1000 + MC.mobs.skinIndex['player:default'], bodyYaw: p.yaw, headYaw: 0, headPitch: 0, walk: 0, walkAmt: 0, hurt: 0, dead: 0, swing: 0 };
+      }
+      pm.x = p.x; pm.y = p.y - (p.sneaking ? 0.15 : 0); pm.z = p.z;
+      let dy = p.yaw - pm.bodyYaw;
+      while (dy > Math.PI) dy -= 2 * Math.PI; while (dy < -Math.PI) dy += 2 * Math.PI;
+      const moving = Math.hypot(p.vx, p.vz) > 0.5;
+      if (moving || Math.abs(dy) > 0.9) pm.bodyYaw += dy * Math.min(1, dt * (moving ? 10 : 4));
+      dy = p.yaw - pm.bodyYaw;
+      while (dy > Math.PI) dy -= 2 * Math.PI; while (dy < -Math.PI) dy += 2 * Math.PI;
+      pm.headYaw = Math.max(-1.2, Math.min(1.2, dy));
+      pm.headPitch = -p.pitch;
+      pm.walk = p.bob * 1.1; pm.walkAmt = p.onGround ? p.bobAmt : 0.2;
+      pm.swing = this.swing > 0 ? this.swing * 0.314 : 0;
+      pm.hurt = p.hurtTime > 0 ? p.hurtTime : 0;
+      pm.held = this.inventory.held();
+      const a = this.inventory.armor;
+      pm.armor = a.map((x) => (x ? x.id : 0));
+      pm.armorEnch = a.map((x) => !!(x && x.ench));
+      pm.onFire = p.fire > 0 ? p.fire : 0;
     }
 
     _selChanged() { this.ui.updateHotbar(); this.ui.showItemName(); this.equip = 1; }
@@ -276,31 +311,30 @@
     async openWorld(meta) {
       this.state = 'loading';
       this.ui.show('screen-loading');
+      this.ui.setLoadingTitle(meta.dim === 'nether' ? 'Entrando nel Nether...' : 'Generazione del mondo...');
       this.ui.setLoading(0, 'Lettura dei salvataggi...');
-      const saved = await this.storage.loadChunks(meta.id);
       this.meta = meta;
-      const w = new MC.World({ seed: meta.seed, type: meta.type, saved, renderDist: this.settings.renderDist });
-      w.onSaveChunk = (k, data) => this.storage.saveChunk(meta.id, k, data);
-      w.onUnload = (c) => this.renderer.freeChunk(c);
-      w.onDrop = (id, x, y, z) => this._naturalDrop(id, x, y, z);
-      const tw = await MC.createTerrainWorker(meta.seed, meta.type);
-      if (tw) w.attachWorker(tw);
-      this.world = w;
+      this.dim = meta.dim || 'overworld';
+      await this._createDimWorld();
+      const w = this.world;
       const p = this.player;
       p.mode = meta.mode;
       p.dead = false; p.vx = p.vy = p.vz = 0; p.fallDist = 0; p.hurtTime = 0;
       p.air = 300;
       if (!meta.spawn) {
-        const sp = w.gen.findSpawn();
+        const g = this.dim === 'overworld' ? w.gen : new MC.Generator(meta.seed, meta.type);
+        const sp = g.findSpawn();
         meta.spawn = { x: sp.x + 0.5, z: sp.z + 0.5 };
       }
       if (meta.player) {
         const s = meta.player;
         p.x = s.x; p.y = s.y; p.z = s.z; p.yaw = s.yaw || 0; p.pitch = s.pitch || 0;
         p.health = s.health === undefined ? 20 : s.health; p.flying = !!s.flying;
+        p.xpLevel = s.xpLevel || 0; p.xp = s.xp || 0; p.xpSeed = s.xpSeed || ((Math.random() * 1e9) | 0);
         this.pendingSpawn = false;
       } else {
         p.x = meta.spawn.x; p.z = meta.spawn.z; p.y = 150; p.yaw = 0; p.pitch = -0.2; p.health = 20; p.flying = false;
+        p.xpLevel = 0; p.xp = 0; p.xpSeed = (Math.random() * 1e9) | 0;
         this.pendingSpawn = true;
       }
       this.chests = meta.chests || {};
@@ -311,13 +345,61 @@
       else this._defaultInventory();
       this.time = meta.time || 1000;
       this.rain = meta.rain || 0; this.rainTarget = this.rain > 0.5 ? 1 : 0;
-      this.entities.clear();
       this.breaking = null;
-      p.frozen = true;
+      this.portalTime = 0; this.portalCooldown = true; this.portalArrival = null;
       this.loadT0 = performance.now();
       this.applySettings();
       this.ui.buildHotbar();
       this.ui.updateHotbar();
+    }
+
+    // crea il mondo della dimensione attuale (i chunk del Nether sono salvati a parte)
+    async _createDimWorld() {
+      const meta = this.meta;
+      const nether = this.dim === 'nether';
+      const sid = nether ? meta.id + ':n' : meta.id;
+      const saved = await this.storage.loadChunks(sid);
+      const type = nether ? 'nether' : meta.type;
+      const w = new MC.World({ seed: meta.seed, type, saved, renderDist: this.settings.renderDist });
+      w.onSaveChunk = (k, data) => this.storage.saveChunk(sid, k, data);
+      w.onUnload = (c) => this.renderer.freeChunk(c);
+      w.onDrop = (id, x, y, z) => this._naturalDrop(id, x, y, z);
+      const tw = await MC.createTerrainWorker(meta.seed, type);
+      if (tw) w.attachWorker(tw);
+      this.world = w;
+      this.entities.clear();
+      this.entities.pendingPets = ((meta.pets && meta.pets[this.dim]) || []).slice();
+      this.player.frozen = true;
+      this.netherFog = null;
+    }
+
+    // passaggio tra Mondo normale e Nether
+    async switchDim(dim, x, y, z, viaPortal) {
+      if (this.switching) return;
+      this.switching = true;
+      const p = this.player;
+      this.autosave();
+      if (this.world) { for (const c of this.world.chunks.values()) this.renderer.freeChunk(c); this.world.destroy(); }
+      this.world = null;
+      this.dim = dim;
+      this.meta.dim = dim;
+      this.state = 'loading';
+      this.keys.clear(); this.mouse.left = this.mouse.right = false;
+      this.unlockPointer();
+      document.getElementById('click-to-play').classList.add('hidden');
+      this.ui.show('screen-loading');
+      this.ui.setLoadingTitle(dim === 'nether' ? 'Entrando nel Nether...' : 'Ritorno al mondo normale...');
+      this.ui.setLoading(0, '');
+      await this.storage.flush();
+      await this._createDimWorld();
+      p.x = x; p.y = y; p.z = z; p.vx = p.vy = p.vz = 0; p.fallDist = 0;
+      this.portalArrival = viaPortal ? { x: Math.floor(x), y: Math.floor(y), z: Math.floor(z) } : null;
+      this.portalTime = 0; this.portalCooldown = true;
+      this.breaking = null;
+      this.loadT0 = performance.now();
+      this.applySettings();
+      this.switching = false;
+      this.audio.portal && this.audio.portal(true);
     }
 
     _defaultInventory() {
@@ -380,8 +462,11 @@
     saveMeta() {
       if (!this.meta || !this.world) return;
       const p = this.player;
-      if (!this.pendingSpawn) this.meta.player = { x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, health: p.health, flying: p.flying, food: p.food, sat: p.sat };
+      if (!this.pendingSpawn) this.meta.player = { x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, health: p.health, flying: p.flying, food: p.food, sat: p.sat, xpLevel: p.xpLevel || 0, xp: p.xp || 0, xpSeed: p.xpSeed || 0 };
+      else if (this.meta.player) Object.assign(this.meta.player, { xpLevel: p.xpLevel || 0, xp: p.xp || 0 });
+      this.meta.dim = this.dim;
       this.meta.chests = this.chests;
+      if (this.entities && this.world) { this.meta.pets = this.meta.pets || {}; this.meta.pets[this.dim] = this.entities.petList(); }
       this.meta.inventory = this.inventory.serialize();
       this.meta.time = Math.floor(this.time);
       this.meta.mode = p.mode;
@@ -436,7 +521,7 @@
       if (!this.world) return;
       if (this.state === 'loading') { this._loading(); return; }
       this._update(dt);
-      this._render(dt, tsec);
+      if (this.world && this.state !== 'loading') this._render(dt, tsec);
     }
 
     _loading() {
@@ -456,14 +541,17 @@
       const frac = ready / total;
       this.ui.setLoading(frac, 'Chunk pronti: ' + Math.floor(ready) + ' / ' + total);
       if (frac >= 0.999 || performance.now() - this.loadT0 > 60000) {
-        if (this.pendingSpawn) { this._placeAtSpawn(); this.pendingSpawn = false; }
+        if (this.portalArrival) { this._arrivePortal(); this.portalArrival = null; }
+        else if (this.pendingSpawn) { this._placeAtSpawn(); this.pendingSpawn = false; }
         this.state = 'playing';
         this.ui.hideScreens();
         this.ui.showHUD(!this.hudHidden);
         this.ui.updateHotbar();
         this.ui.updateBars();
         if (!this.touchMode) document.getElementById('click-to-play').classList.remove('hidden');
-        this.ui.chat(this.touchMode ? 'Benvenuto in ' + this.meta.name + '! Tocca per piazzare, tieni premuto per rompere.' : 'Benvenuto in ' + this.meta.name + '! Premi T per i comandi, E per l\'inventario.');
+        if (this.dim === 'nether') this.ui.chat('Sei nel Nether. Attento alla lava e ai ghast!');
+        else if (this._welcomed !== this.meta.id) this.ui.chat(this.touchMode ? 'Benvenuto in ' + this.meta.name + '! Tocca per piazzare, tieni premuto per rompere.' : 'Benvenuto in ' + this.meta.name + '! Premi T per i comandi, E per l\'inventario.');
+        this._welcomed = this.meta.id;
       }
     }
 
@@ -487,7 +575,7 @@
       const w = this.world, p = this.player;
       const simulate = this.state !== 'paused';
       if (!simulate) return;
-      const env = this.renderer.computeEnv(this.time, p.eyeInWater, p.eyeInLava, w.renderDist, this._rainLevel());
+      const env = this.renderer.computeEnv(this.time, p.eyeInWater, p.eyeInLava, w.renderDist, this._rainLevel(), this.dim === 'nether' ? this._netherFog(dt) : null);
       env.gamma = 0.15 + (this.settings.bright / 100) * 0.85;
       this.env = env;
 
@@ -497,6 +585,7 @@
         if (c && !c.dirty.some((v) => v)) { this._placeAtSpawn(); this.pendingSpawn = false; }
       }
       p.frozen = this.pendingSpawn || !w.isReady(p.x, p.z);
+      p.respiration = MC.enchant.enchLv(this.inventory.armor[0], 'respiration');
       const input = this._input();
       let rem = dt;
       while (rem > 1e-6) { const s = Math.min(rem, 1 / 60); p.update(s, input, w); rem -= s; }
@@ -514,6 +603,9 @@
       if (n >= 5) this.tickAcc = 0;
 
       this.entities.update(dt, w, p, env);
+      if (this.world !== w) return; // cambio di dimensione in corso
+      this._portalTick(dt);
+      if (this.world !== w) return;
       if (this.state === 'playing') this._interact(dt);
       else { this.breaking = null; }
       if (this.swing > 0) this.swing = Math.max(0, this.swing - dt * 3.5);
@@ -537,7 +629,8 @@
       if (p.dead && this.state !== 'dead') this._die();
 
       this.ui.updateBars();
-      this.ui.setFx(p.eyeInWater, p.eyeInLava, p.hurtTime);
+      this.ui.setFx(p.eyeInWater, p.eyeInLava ? 1 : p.fire > 0 ? 0.3 : 0, p.hurtTime);
+      if (p.fire > 0 && Math.random() < 0.5) this.entities.flame(p.x + (Math.random() - 0.5) * 0.6, p.y + Math.random() * 1.2, p.z + (Math.random() - 0.5) * 0.6);
       this.touch.show(this.state === 'playing' && !this.hudHidden);
       const eb = document.getElementById('eat-bar');
       const prog = this.eating ? this.eating.t / 1.6 : this.bowCharge > 0 ? this.bowCharge : 0;
@@ -577,7 +670,212 @@
       }
       this.rain += (this.rainTarget - this.rain) * 0.004;
     }
-    _rainLevel() { return this.settings.weather ? this.rain : 0; }
+    _rainLevel() { return this.settings.weather && this.dim !== 'nether' ? this.rain : 0; }
+
+    // ---------------- Esperienza ----------------
+    addXp(n) {
+      const p = this.player;
+      if (p.mode !== 'survival' && p.mode !== 'creative') return;
+      p.xp = (p.xp || 0) + n;
+      p.xpLevel = p.xpLevel || 0;
+      let up = false;
+      while (p.xp >= MC.enchant.xpNeed(p.xpLevel)) { p.xp -= MC.enchant.xpNeed(p.xpLevel); p.xpLevel++; up = true; }
+      if (up && p.xpLevel % 5 === 0) this.audio.levelup && this.audio.levelup();
+      this.ui.updateXp();
+    }
+    addXpLevels(n) {
+      const p = this.player;
+      p.xpLevel = Math.max(0, (p.xpLevel || 0) + n);
+      if (n < 0) p.xp = Math.min(p.xp || 0, MC.enchant.xpNeed(p.xpLevel) - 1);
+      this.ui.updateXp();
+    }
+
+    // ---------------- Incantesimi ----------------
+    openEnchant(x, y, z) {
+      // librerie attorno al tavolo (a distanza 2, con aria in mezzo)
+      const w = this.world;
+      let shelves = 0;
+      for (let dy = 0; dy <= 1; dy++) for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== 2) continue;
+        if (w.getBlock(x + dx, y + dy, z + dz) !== B.bookshelf) continue;
+        const mx = x + Math.sign(dx) * (Math.abs(dx) > 1 ? 1 : 0), mz = z + Math.sign(dz) * (Math.abs(dz) > 1 ? 1 : 0);
+        if (w.getBlock(mx, y + dy, mz) === 0 || w.getBlock(mx, y, mz) === 0) shelves++;
+      }
+      shelves = Math.min(15, shelves);
+      this.enchantShelves = shelves;
+      this.state = 'inventory';
+      this.keys.clear(); this.mouse.left = this.mouse.right = false;
+      this.unlockPointer();
+      document.getElementById('click-to-play').classList.add('hidden');
+      this.ui.openInventory(null, null, { enchant: true, shelves });
+    }
+    applyEnchant(slotIdx) {
+      const ui = this.ui, p = this.player;
+      const st = ui.enchantSlots[0], lap = ui.enchantSlots[1];
+      const opts = MC.enchant.options(p.xpSeed || 0, st, this.enchantShelves || 0);
+      if (!opts) return false;
+      const o = opts[slotIdx];
+      const creative = p.mode === 'creative';
+      if (!creative && ((p.xpLevel || 0) < o.cost || !lap || lap.id !== B.lapis || lap.count < o.lapis)) return false;
+      st.ench = Object.assign({}, o.ench);
+      if (!creative) {
+        this.addXpLevels(-o.lapis);
+        lap.count -= o.lapis;
+        if (lap.count <= 0) ui.enchantSlots[1] = null;
+      }
+      p.xpSeed = (Math.random() * 1e9) | 0;
+      this.audio.enchant && this.audio.enchant();
+      return true;
+    }
+
+    // colore della nebbia del Nether secondo il bioma (con transizione morbida)
+    _netherFog(dt) {
+      const p = this.player;
+      const FOG = { 19: [0.2, 0.03, 0.02], 20: [0.24, 0.02, 0.02], 21: [0.07, 0.03, 0.11], 22: [0.08, 0.2, 0.2], 23: [0.3, 0.26, 0.28] };
+      const want = FOG[this.world.biomeAt(Math.floor(p.x), Math.floor(p.z))] || FOG[19];
+      if (!this.netherFog) this.netherFog = want.slice();
+      const k = Math.min(1, dt * 0.8);
+      for (let i = 0; i < 3; i++) this.netherFog[i] += (want[i] - this.netherFog[i]) * k;
+      return this.netherFog;
+    }
+
+    // ---------------- Portali ----------------
+    _portalTick(dt) {
+      const p = this.player, w = this.world;
+      if (p.dead || this.state !== 'playing' && this.state !== 'inventory') { this.ui.setPortalFx(0); return; }
+      const inP = (y) => w.getBlock(Math.floor(p.x), Math.floor(y), Math.floor(p.z)) === B.nether_portal;
+      const inside = inP(p.y + 0.2) || inP(p.y + 1.2);
+      if (!inside) { this.portalCooldown = false; this.portalTime = Math.max(0, this.portalTime - dt * 2); this.ui.setPortalFx(this.portalTime / 4); return; }
+      if (this.portalCooldown) { this.ui.setPortalFx(0); return; }
+      if (this.portalTime === 0) this.audio.portal && this.audio.portal(false);
+      this.portalTime += dt;
+      const need = p.mode === 'creative' ? 1 : 4;
+      this.ui.setPortalFx(Math.min(1, this.portalTime / need));
+      if (Math.random() < dt * 20) this.entities.addParticle(p.x + (Math.random() - 0.5) * 1.5, p.y + Math.random() * 2, p.z + (Math.random() - 0.5) * 1.5, (Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5), MC.textures.index.white, [0.6, 0.2, 1], 0.8, 0.05, -0.2, true);
+      if (this.portalTime >= need) {
+        this.portalTime = 0;
+        this.ui.setPortalFx(0);
+        if (this.state === 'inventory') this.closeInventory();
+        const toNether = this.dim !== 'nether';
+        const f = toNether ? 1 / 8 : 8;
+        const NH = MC.NH;
+        const ty = toNether ? Math.max(34, Math.min(NH - 10, p.y)) : Math.max(MC.SEA, Math.min(WH - 10, p.y));
+        this.switchDim(toNether ? 'nether' : 'overworld', p.x * f, ty, p.z * f, true);
+      }
+    }
+
+    // accende un portale in una cornice di ossidiana; restituisce true se riuscito
+    _tryLightPortal(x, y, z) {
+      const w = this.world;
+      if (w.getBlock(x, y, z) !== 0) return false;
+      for (const axis of [0, 1]) {
+        const ax = axis ? 0 : 1, az = axis ? 1 : 0;
+        let by = y;
+        while (by > y - 22 && w.getBlock(x, by - 1, z) === 0) by--;
+        if (w.getBlock(x, by - 1, z) !== B.obsidian) continue;
+        let x0 = x, z0 = z;
+        let n = 0;
+        while (n < 22 && w.getBlock(x0 - ax, by, z0 - az) === 0) { x0 -= ax; z0 -= az; n++; }
+        if (w.getBlock(x0 - ax, by, z0 - az) !== B.obsidian) continue;
+        let width = 1;
+        while (width < 22 && w.getBlock(x0 + ax * width, by, z0 + az * width) === 0) width++;
+        if (w.getBlock(x0 + ax * width, by, z0 + az * width) !== B.obsidian || width < 2 || width > 21) continue;
+        let height = 1;
+        while (height < 22 && w.getBlock(x0, by + height, z0) === 0) height++;
+        if (w.getBlock(x0, by + height, z0) !== B.obsidian || height < 3 || height > 21) continue;
+        let ok = true;
+        for (let i = 0; i < width && ok; i++) {
+          if (w.getBlock(x0 + ax * i, by - 1, z0 + az * i) !== B.obsidian || w.getBlock(x0 + ax * i, by + height, z0 + az * i) !== B.obsidian) ok = false;
+          for (let j = 0; j < height && ok; j++) if (w.getBlock(x0 + ax * i, by + j, z0 + az * i) !== 0) ok = false;
+        }
+        for (let j = 0; j < height && ok; j++) {
+          if (w.getBlock(x0 - ax, by + j, z0 - az) !== B.obsidian || w.getBlock(x0 + ax * width, by + j, z0 + az * width) !== B.obsidian) ok = false;
+        }
+        if (!ok) continue;
+        w.urgent = true;
+        for (let i = 0; i < width; i++) for (let j = 0; j < height; j++) w.setBlock(x0 + ax * i, by + j, z0 + az * i, B.nether_portal, axis, { noUpdate: true });
+        w.urgent = false;
+        this.audio.portal && this.audio.portal(true);
+        return true;
+      }
+      return false;
+    }
+
+    // all'arrivo: usa un portale vicino oppure ne costruisce uno
+    _arrivePortal() {
+      const w = this.world, p = this.player, a = this.portalArrival;
+      const nether = this.dim === 'nether';
+      const top = nether ? MC.NH - 2 : WH - 2;
+      let best = null, bd = 1e9;
+      for (let dz = -20; dz <= 20; dz++) for (let dx = -20; dx <= 20; dx++) {
+        const x = a.x + dx, z = a.z + dz;
+        if (!w.isReady(x, z)) continue;
+        for (let y = 1; y < top; y++) {
+          if (w.getBlock(x, y, z) === B.nether_portal && w.getBlock(x, y - 1, z) !== B.nether_portal) {
+            const d = dx * dx + dz * dz + (y - a.y) * (y - a.y) * 0.25;
+            if (d < bd) { bd = d; best = [x, y, z]; }
+          }
+        }
+      }
+      if (!best) best = this._buildPortal(a.x, a.y, a.z);
+      // esce davanti al portale (non dentro), guardando dalla parte opposta
+      const ax = w.getMeta(best[0], best[1], best[2]) & 1;
+      let px = best[0] + 0.5, pz = best[2] + 0.5, yaw = p.yaw;
+      for (const sg of [1, -1]) {
+        const cx = best[0] + (ax ? sg : 0), cz = best[2] + (ax ? 0 : sg);
+        if (!SOLID[w.getBlock(cx, best[1], cz)] && !SOLID[w.getBlock(cx, best[1] + 1, cz)] && !FLUID[w.getBlock(cx, best[1], cz)]) {
+          px = cx + 0.5; pz = cz + 0.5; yaw = ax ? (sg > 0 ? -Math.PI / 2 : Math.PI / 2) : (sg > 0 ? Math.PI : 0);
+          break;
+        }
+      }
+      p.x = px; p.y = best[1]; p.z = pz; p.yaw = yaw; p.pitch = 0; p.vx = p.vy = p.vz = 0; p.fallDist = 0;
+      this.portalCooldown = true;
+      this.pendingSpawn = false;
+    }
+
+    _buildPortal(x, y, z) {
+      const w = this.world;
+      const nether = this.dim === 'nether';
+      const ymin = nether ? 33 : 2, ymax = nether ? MC.NH - 12 : WH - 8;
+      const free = (bx, by, bz) => {
+        for (let i = -1; i <= 2; i++) for (let j = 0; j <= 3; j++) for (let k = -1; k <= 1; k++) {
+          const b = w.getBlock(bx + i, by + j, bz + k);
+          if (b && !REPLACEABLE[b]) return false;
+          if (FLUID[b]) return false;
+        }
+        for (let i = 0; i <= 1; i++) for (let k = -1; k <= 1; k++) if (!SOLID[w.getBlock(bx + i, by - 1, bz + k)]) return false;
+        return true;
+      };
+      let spot = null;
+      for (let r = 0; r <= 12 && !spot; r++) {
+        for (let dz = -r; dz <= r && !spot; dz++) for (let dx = -r; dx <= r && !spot; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          for (let dy = 0; dy <= 24 && !spot; dy++) {
+            for (const sg of [1, -1]) {
+              const yy = y + dy * sg;
+              if (yy < ymin || yy > ymax) continue;
+              if (free(x + dx, yy, z + dz)) { spot = [x + dx, yy, z + dz]; break; }
+            }
+          }
+        }
+      }
+      let forced = false;
+      if (!spot) { spot = [x, Math.max(ymin, Math.min(ymax, y)), z]; forced = true; }
+      const [bx, by, bz] = spot;
+      w.urgent = true;
+      if (forced) {
+        // scava lo spazio e crea una piattaforma di ossidiana
+        for (let i = -1; i <= 2; i++) for (let j = 0; j <= 3; j++) for (let k = -1; k <= 1; k++) w.setBlock(bx + i, by + j, bz + k, 0, 0, { noUpdate: true });
+        for (let i = -1; i <= 2; i++) for (let k = -1; k <= 1; k++) w.setBlock(bx + i, by - 1, bz + k, B.obsidian, 0, { noUpdate: true });
+      }
+      for (let i = -1; i <= 2; i++) for (let j = -1; j <= 3; j++) {
+        const edge = i === -1 || i === 2 || j === -1 || j === 3;
+        w.setBlock(bx + i, by + j, bz, edge ? B.obsidian : 0, 0, { noUpdate: true });
+      }
+      for (let i = 0; i <= 1; i++) for (let j = 0; j <= 2; j++) w.setBlock(bx + i, by + j, bz, B.nether_portal, 0, { noUpdate: true });
+      w.urgent = false;
+      return [bx, by, bz];
+    }
     _rainExposure() {
       const p = this.player, w = this.world;
       const sky = w.getSky(Math.floor(p.x), Math.floor(p.y + 1.6), Math.floor(p.z));
@@ -593,7 +891,11 @@
       const hd = held ? MC.blocks[held.id] : null;
       const tool = hd && hd.tool ? hd.tool : null;
       let speed = 1;
-      if (tool && def.tool && tool.type === def.tool) speed = tool.speed;
+      if (tool && def.tool && tool.type === def.tool) {
+        speed = tool.speed;
+        const eff = MC.enchant.enchLv(held, 'efficiency');
+        if (eff) speed += eff * eff + 1;
+      }
       if (tool && tool.type === 'sword' && def.key.endsWith('_leaves')) speed = 1.5;
       if (tool && tool.type === 'sword' && def.key === 'cobweb') speed = 15;
       const canHarvest = !def.needsTool || (tool && tool.type === def.tool && tool.level >= def.level);
@@ -611,6 +913,16 @@
       const reach = p.mode === 'creative' ? 5 : 4.5;
       const hit = MC.raycast(w, eye[0], eye[1], eye[2], d[0], d[1], d[2], reach);
       const mh = this.entities.raycastMobs(eye[0], eye[1], eye[2], d[0], d[1], d[2], 3.5);
+      // colpire una palla di fuoco la rimanda indietro
+      if (this.mouse.left && this.attackCd <= 0) {
+        const fb = this.entities.raycastProjectiles(eye[0], eye[1], eye[2], d[0], d[1], d[2], 4.5);
+        if (fb && (!hit || fb.t < hit.t)) {
+          const sp = Math.hypot(fb.pr.vx, fb.pr.vy, fb.pr.vz) * 1.2;
+          fb.pr.vx = d[0] * sp; fb.pr.vy = d[1] * sp; fb.pr.vz = d[2] * sp; fb.pr.owner = 'player'; fb.pr.age = 0;
+          this.attackCd = 0.4; this.swing = 1;
+          this.audio.hit(B.stone);
+        }
+      }
       const mobFirst = mh && (!hit || mh.t < hit.t);
       this.target = mobFirst ? null : hit;
       this.targetMob = mobFirst ? mh.mob : null;
@@ -619,9 +931,16 @@
       if (this.mouse.left && !this.eating) {
         if (mobFirst) {
           if (this.attackCd <= 0) {
-            const dmg = hd && hd.tool ? hd.tool.damage : 1;
+            const E = MC.enchant.enchLv;
+            let dmg = hd && hd.tool ? hd.tool.damage : 1;
+            const sharp = E(held, 'sharpness');
+            if (sharp) dmg += 0.5 * sharp + 0.5;
             const crit = !p.onGround && p.vy < 0 && !p.inWater;
-            if (this.entities.hitMob(mh.mob, crit ? dmg * 1.5 : dmg, p.x, p.z, p.sprinting ? 1.6 : 1) && p.mode === 'survival') {
+            mh.mob.lastPlayerHit = 5;
+            mh.mob.looting = E(held, 'looting');
+            const fa = E(held, 'fire_aspect');
+            if (fa && !mh.mob.D.fireImmune) mh.mob.onFire = Math.max(mh.mob.onFire || 0, 4 * fa);
+            if (this.entities.hitMob(mh.mob, crit ? dmg * 1.5 : dmg, p.x, p.z, (p.sprinting ? 1.6 : 1) + E(held, 'knockback') * 0.9, 'player') && p.mode === 'survival') {
               if (hd && hd.tool) this.inventory.wearHeld(hd.tool.type === 'sword' ? 1 : 2);
               p.exhaust(0.1);
             }
@@ -674,13 +993,16 @@
       this.eating = null;
       if (hd && hd.bow) {
         const hasArrow = p.mode === 'creative' || this.inventory.count(B.arrow) > 0;
+        const EB = MC.enchant.enchLv;
         if (holdUse && hasArrow) { this.bowCharge = Math.min(1, (this.bowCharge || 0) + dt); }
         else if (!holdUse && this.bowCharge > 0.12) {
           const pw = this.bowCharge;
           const e = p.eye;
-          this.entities.shootArrow(e[0] + d[0] * 0.3, e[1] - 0.1, e[2] + d[2] * 0.3, d[0] * 45 * pw, d[1] * 45 * pw, d[2] * 45 * pw, 'player', 2 + 7 * pw * pw);
+          const pow = EB(held, 'power');
+          const ar = this.entities.shootArrow(e[0] + d[0] * 0.3, e[1] - 0.1, e[2] + d[2] * 0.3, d[0] * 45 * pw, d[1] * 45 * pw, d[2] * 45 * pw, 'player', (2 + 7 * pw * pw) * (pow ? 1 + 0.25 * (pow + 1) : 1));
+          if (ar) { ar.punch = EB(held, 'punch'); ar.flame = EB(held, 'flame'); ar.infinite = EB(held, 'infinity') > 0; }
           this.audio.bow();
-          if (p.mode === 'survival') { this.inventory.remove(B.arrow, 1); this.inventory.wearHeld(1); }
+          if (p.mode === 'survival') { if (!EB(held, 'infinity')) this.inventory.remove(B.arrow, 1); this.inventory.wearHeld(1); }
           this.bowCharge = 0;
         } else if (!holdUse) this.bowCharge = 0;
         return;
@@ -696,6 +1018,25 @@
     _useOnMob(m) {
       const held = this.inventory.held();
       if (m.type === 'villager' && !m.dead) { this.openTrade(m); return; }
+      // addomesticare lupi (osso) e gatti (merluzzo)
+      const food = { wolf: [B.bone], cat: [B.cod, B.cooked_cod] }[m.type];
+      if (food && !m.dead) {
+        const p = this.player;
+        if (!m.tamed && held && food.includes(held.id) && !(m.angry > 0)) {
+          if (p.mode === 'survival') this.inventory.consumeHeld(1);
+          this.swing = 1;
+          const ok = p.mode === 'creative' || Math.random() < 0.34;
+          for (let i = 0; i < 7; i++) this.entities.addParticle(m.x + (Math.random() - 0.5) * 0.6, m.y + m.D.h + Math.random() * 0.3, m.z + (Math.random() - 0.5) * 0.6, 0, 0.8, 0, MC.textures.index.white, ok ? [1, 0.3, 0.4] : [0.4, 0.4, 0.4], 0.9, 0.06, -0.4, true);
+          if (ok) { m.tamed = true; m.maxHp = 20; m.hp = 20; m.persistent = true; m.sitting = true; m.target = null; m.angry = 0; this.audio.tame(); this.ui.chat(m.D.name + ' addomesticato! Clic destro per farlo sedere o alzare.'); }
+          return;
+        }
+        if (m.tamed) {
+          const meat = held && MC.blocks[held.id].food && m.type === 'wolf' && ['porkchop', 'cooked_porkchop', 'beef', 'steak', 'chicken', 'cooked_chicken', 'mutton', 'cooked_mutton', 'rotten_flesh'].includes(MC.blocks[held.id].key);
+          if (meat && m.hp < m.maxHp) { m.hp = Math.min(m.maxHp, m.hp + 4); if (p.mode === 'survival') this.inventory.consumeHeld(1); this.audio.eat(); return; }
+          m.sitting = !m.sitting; m.target = null; this.swing = 1;
+          return;
+        }
+      }
       if (held && MC.blocks[held.id].egg) { this._use(null); return; }
     }
 
@@ -719,12 +1060,20 @@
       if (def.interact === 'chest') this._dropChest(x, y, z);
       this.entities.breakParticles(id, x, y, z);
       this.audio.dig(id);
-      if (drop && this.player.mode === 'survival') this._spawnDrops(id, x, y, z, meta);
+      if (drop && this.player.mode === 'survival') this._spawnDrops(id, x, y, z, meta, this.inventory.held());
     }
 
-    _spawnDrops(id, x, y, z, meta) {
+    _spawnDrops(id, x, y, z, meta, tool) {
       const def = MC.blocks[id];
-      if (def.dropFn) { for (const [did, n] of def.dropFn(meta)) if (did && n) this.entities.dropItem(did, n, x + 0.5, y + 0.4, z + 0.5); return; }
+      const E = MC.enchant.enchLv;
+      if (tool && E(tool, 'silk_touch') && def.hardness > 0 && !def.shape.match(/model|crop|liquid/) && id < 256 && def.creative) {
+        this.entities.dropItem(id, 1, x + 0.5, y + 0.4, z + 0.5);
+        return;
+      }
+      if (def.xp && tool) this.entities.spawnXp(x + 0.5, y + 0.5, z + 0.5, def.xp[0] + Math.floor(Math.random() * (def.xp[1] - def.xp[0] + 1)));
+      const fort = tool && def.fortune ? E(tool, 'fortune') : 0;
+      const mul = fort ? Math.max(1, 1 + Math.floor(Math.random() * (fort + 2)) - 1) : 1;
+      if (def.dropFn) { for (const [did, n] of def.dropFn(meta)) if (did && n) this.entities.dropItem(did, n * mul, x + 0.5, y + 0.4, z + 0.5); return; }
       if (def.drop) this.entities.dropItem(def.drop, 1, x + 0.5, y + 0.4, z + 0.5);
     }
 
@@ -737,6 +1086,26 @@
       const w = this.world, p = this.player;
       const held = this.inventory.held();
       const hd = held ? MC.blocks[held.id] : null;
+      // armature: si indossano col clic destro
+      if (hd && hd.armor) {
+        const sl = hd.armor.slot, inv = this.inventory;
+        const old = inv.armor[sl];
+        inv.armor[sl] = held;
+        inv.slots[inv.selected] = old;
+        inv._ch();
+        this.audio.equip ? this.audio.equip() : this.audio.pop();
+        this.swing = 1;
+        return;
+      }
+      // perla di ender e ampolla di esperienza si lanciano
+      if (hd && (hd.pearl || hd.xpBottle)) {
+        const d = p.dir(), e = p.eye;
+        this.entities.throwProjectile(hd.pearl ? 'pearl' : 'xpbottle', e[0] + d[0] * 0.4, e[1] - 0.1, e[2] + d[2] * 0.4, d[0] * 22 + p.vx, d[1] * 22 + 2, d[2] * 22 + p.vz);
+        this.audio.bow(0.5);
+        this.swing = 1;
+        if (p.mode === 'survival') this.inventory.consumeHeld(1);
+        return;
+      }
       // uova generatrici
       if (hd && hd.egg) {
         let x, y, z;
@@ -753,7 +1122,11 @@
         if (def.interact === 'craft') { this.swing = 1; this.openInventory(hit.id === B.furnace ? 'furnace' : 'table'); return; }
         if (def.interact === 'chest') { this.swing = 1; this.openChest(hit.x, hit.y, hit.z); return; }
         if (def.interact === 'door') { this._toggleDoor(hit.x, hit.y, hit.z); this.swing = 1; return; }
-        if (def.interact === 'bed') { this._sleep(hit.x, hit.y, hit.z); return; }
+        if (def.interact === 'bed') {
+          if (this.dim === 'nether') { this.breakBlock(hit.x, hit.y, hit.z, false); this.explode(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5, 5); this.lastHurt = 'bed'; return; }
+          this._sleep(hit.x, hit.y, hit.z); return;
+        }
+        if (def.interact === 'enchant') { this.swing = 1; this.openEnchant(hit.x, hit.y, hit.z); return; }
         if (def.interact === 'gate' || def.interact === 'trapdoor') {
           const m = w.getMeta(hit.x, hit.y, hit.z) ^ 4;
           let mm = m;
@@ -766,6 +1139,13 @@
           w.urgent = true; w.setBlock(hit.x, hit.y, hit.z, hit.id, mm, { noUpdate: true }); w.urgent = false;
           this.audio.door(!!(mm & 4)); this.swing = 1;
           return;
+        }
+        if (hd && hd.igniter && hit.id === B.obsidian) {
+          if (this._tryLightPortal(hit.x + hit.n[0], hit.y + hit.n[1], hit.z + hit.n[2])) {
+            this.swing = 1;
+            if (p.mode === 'survival') this.inventory.wearHeld(1);
+            return;
+          }
         }
         if (hit.id === B.tnt && (!hd || hd.igniter || !MC.blocks[held.id] || hd.item)) {
           w.urgent = true; w.setBlock(hit.x, hit.y, hit.z, 0, 0); w.urgent = false;
@@ -794,6 +1174,40 @@
         if (p.mode === 'survival') this.inventory.wearHeld(1);
         return;
       }
+      // farina d'ossa: fa crescere piante e raccolti
+      if (hd.boneMeal) {
+        const b = hit.id, m = w.getMeta(hit.x, hit.y, hit.z);
+        let used = false;
+        w.urgent = true;
+        if (b === B.wheat && m < 7) { w.setBlock(hit.x, hit.y, hit.z, b, Math.min(7, m + 2 + Math.floor(Math.random() * 3))); used = true; }
+        else if (b === B.nether_wart && m < 3) { w.setBlock(hit.x, hit.y, hit.z, b, 3); used = true; }
+        else if (MC.blocks[b].key.endsWith('_sapling')) { if (Math.random() < 0.45) w.growTree(hit.x, hit.y, hit.z, b); used = true; }
+        else if (b === B.grass && hit.n[1] === 1) {
+          for (let i = 0; i < 24; i++) {
+            const gx = hit.x + Math.floor((Math.random() - 0.5) * 7), gz = hit.z + Math.floor((Math.random() - 0.5) * 7);
+            for (let gy = hit.y + 2; gy >= hit.y - 2; gy--) {
+              if (w.getBlock(gx, gy, gz) === B.grass && w.getBlock(gx, gy + 1, gz) === 0) { const r = Math.random(); w.setBlock(gx, gy + 1, gz, r < 0.75 ? B.tall_grass : r < 0.88 ? B.dandelion : B.poppy, 0); break; }
+            }
+          }
+          used = true;
+        }
+        w.urgent = false;
+        if (used) {
+          for (let i = 0; i < 10; i++) this.entities.addParticle(hit.x + Math.random(), hit.y + 1 + Math.random() * 0.5, hit.z + Math.random(), 0, 0.5, 0, MC.textures.index.white, [0.4, 1, 0.4], 0.8, 0.04, -0.3, true);
+          this.swing = 1;
+          if (p.mode === 'survival') this.inventory.consumeHeld(1);
+        }
+        return;
+      }
+      // piante del Nether (verruca su sabbia delle anime)
+      if (hd.plant) {
+        if (hit.id === B[hd.plantOn] && hit.n[1] === 1 && !w.getBlock(hit.x, hit.y + 1, hit.z)) {
+          w.urgent = true; w.setBlock(hit.x, hit.y + 1, hit.z, B[hd.plant], 0); w.urgent = false;
+          this.audio.place(B.grass); this.swing = 1;
+          if (p.mode === 'survival') this.inventory.consumeHeld(1);
+        }
+        return;
+      }
       if (hd.seeds) {
         if (hit.id === B.farmland && hit.n[1] === 1 && !w.getBlock(hit.x, hit.y + 1, hit.z)) {
           w.urgent = true; w.setBlock(hit.x, hit.y + 1, hit.z, B.wheat, 0); w.urgent = false;
@@ -811,7 +1225,7 @@
 
     // ---------------- Bauli ----------------
     openChest(x, y, z) {
-      const key = x + ',' + y + ',' + z;
+      const key = (this.dim === 'nether' ? 'n:' : '') + x + ',' + y + ',' + z;
       if (!this.chests[key]) {
         this.chests[key] = new Array(27).fill(null);
         // bottino dei villaggi: il meta 8 indica un baule da riempire
@@ -827,6 +1241,16 @@
     }
     _fillLoot(slots, x, y, z) {
       const r = MC.util.mulberry32((x * 73856093) ^ (y * 19349663) ^ (z * 83492791));
+      if (this.dim === 'nether') {
+        const fp = [['gold_ingot', 1, 5], ['iron_ingot', 1, 5], ['diamond', 1, 3, 0.4], ['nether_wart_item', 3, 7], ['golden_chestplate', 1, 1, 0.4], ['golden_sword', 1, 1, 0.5], ['iron_sword', 1, 1, 0.4], ['obsidian', 2, 6], ['flint_and_steel', 1, 1, 0.5], ['blaze_rod', 1, 3, 0.4], ['gold_nugget', 3, 12], ['diamond_chestplate', 1, 1, 0.08], ['experience_bottle', 1, 4, 0.5], ['book', 1, 3]];
+        const n2 = 3 + Math.floor(r() * 5);
+        for (let i = 0; i < n2; i++) {
+          const [k, a, b, chance] = fp[Math.floor(r() * fp.length)];
+          if (chance && r() > chance) continue;
+          slots[Math.floor(r() * 27)] = { id: B[k], count: a + Math.floor(r() * (b - a + 1)) };
+        }
+        return;
+      }
       const pool = [['bread', 1, 4], ['apple', 1, 3], ['iron_ingot', 1, 5], ['gold_ingot', 1, 3], ['wheat_item', 3, 8], ['emerald', 1, 3], ['diamond', 1, 2, 0.15], ['iron_pickaxe', 1, 1, 0.3], ['iron_sword', 1, 1, 0.3], ['oak_sapling', 1, 3], ['torch', 4, 10], ['coal', 2, 6], ['arrow', 4, 12], ['bow', 1, 1, 0.2]];
       const n = 3 + Math.floor(r() * 5);
       for (let i = 0; i < n; i++) {
@@ -837,7 +1261,7 @@
     }
     chestChanged() { if (this.meta) this.meta.chests = this.chests; }
     _dropChest(x, y, z) {
-      const key = x + ',' + y + ',' + z;
+      const key = (this.dim === 'nether' ? 'n:' : '') + x + ',' + y + ',' + z;
       const slots = this.chests[key];
       if (!slots) return;
       for (const s of slots) if (s) this.entities.dropItem(s.id, s.count, x + 0.5, y + 0.5, z + 0.5);
@@ -999,15 +1423,15 @@
       const s = this.inventory.held();
       if (!s) return;
       const n = all ? s.count : 1;
-      this.throwStack(s.id, n);
+      this.throwStack(s.id, n, s);
       if (this.player.mode === 'survival') this.inventory.consumeHeld(n);
       this.swing = 1;
     }
 
-    throwStack(id, n) {
+    throwStack(id, n, extra) {
       const p = this.player, d = p.dir();
       const e = p.eye;
-      this.entities.dropItem(id, n, e[0] + d[0] * 0.3, e[1] - 0.3, e[2] + d[2] * 0.3, d[0] * 6 + p.vx, d[1] * 6 + 2, d[2] * 6 + p.vz, 1.2);
+      this.entities.dropItem(id, n, e[0] + d[0] * 0.3, e[1] - 0.3, e[2] + d[2] * 0.3, d[0] * 6 + p.vx, d[1] * 6 + 2, d[2] * 6 + p.vz, 1.2, extra);
     }
 
     // ---------------- Esplosioni ----------------
@@ -1065,19 +1489,27 @@
       this.unlockPointer();
       const p = this.player;
       // perde l'inventario
-      for (let i = 0; i < 36; i++) {
-        const s = this.inventory.slots[i];
-        if (s) this.entities.dropItem(s.id, s.count, p.x, p.y + 1, p.z, (this.rng() - 0.5) * 5, 3 + this.rng() * 3, (this.rng() - 0.5) * 5, 2);
+      for (const s of this.inventory.slots.concat(this.inventory.armor)) {
+        if (s) this.entities.dropItem(s.id, s.count, p.x, p.y + 1, p.z, (this.rng() - 0.5) * 5, 3 + this.rng() * 3, (this.rng() - 0.5) * 5, 2, s);
       }
       this.inventory.slots = new Array(36).fill(null);
+      this.inventory.armor = [null, null, null, null];
+      if (p.xpLevel || p.xp) { this.entities.spawnXp(p.x, p.y + 0.5, p.z, Math.min(100, (p.xpLevel || 0) * 7)); p.xpLevel = 0; p.xp = 0; this.ui.updateXp(); }
       this.inventory._ch();
-      const msgs = { fall: 'Sei caduto da troppo in alto', drown: 'Sei annegato', lava: 'Hai provato a nuotare nella lava', explosion: 'Sei saltato in aria', zombie: 'Sei stato ucciso da uno zombie', cactus: 'Sei stato punto a morte', void: 'Sei caduto fuori dal mondo', kill: 'Sei morto', arrow: 'Sei stato colpito da uno scheletro', spider: 'Sei stato ucciso da un ragno', golem: 'Sei stato ucciso da un golem di ferro', starve: 'Sei morto di fame' };
+      const msgs = { fall: 'Sei caduto da troppo in alto', drown: 'Sei annegato', lava: 'Hai provato a nuotare nella lava', explosion: 'Sei saltato in aria', zombie: 'Sei stato ucciso da uno zombie', cactus: 'Sei stato punto a morte', void: 'Sei caduto fuori dal mondo', kill: 'Sei morto', arrow: 'Sei stato colpito da uno scheletro', spider: 'Sei stato ucciso da un ragno', golem: 'Sei stato ucciso da un golem di ferro', starve: 'Sei morto di fame', bed: 'Il letto è esploso: nel Nether non si dorme!', magma: 'Hai camminato sul magma', fireball: 'Sei stato colpito da una palla di fuoco', ghast: 'Sei stato colpito da una palla di fuoco di ghast', blaze: 'Sei stato bruciato da un blaze', zombified_piglin: 'Sei stato ucciso da un piglin zombificato', magma_cube: 'Sei stato schiacciato da un cubo di magma', enderman: 'Sei stato ucciso da un enderman', wolf: 'Sei stato sbranato da un lupo', fire: 'Sei bruciato', pearl: 'Sei caduto dopo un teletrasporto' };
       this.ui.showDeath(msgs[this.lastHurt] || 'Sei morto');
       document.getElementById('click-to-play').classList.add('hidden');
     }
 
     respawn() {
       const p = this.player;
+      if (this.dim === 'nether') {
+        p.dead = false; p.health = 20; p.air = 300; p.food = 20; p.sat = 5; p.exh = 0; p.hurtTime = 0; p.flying = false;
+        this.pendingSpawn = true;
+        this.ui.hideScreens();
+        this.switchDim('overworld', this.meta.spawn.x, 150, this.meta.spawn.z, false);
+        return;
+      }
       p.dead = false; p.health = 20; p.air = 300; p.food = 20; p.sat = 5; p.exh = 0; p.vx = p.vy = p.vz = 0; p.fallDist = 0; p.hurtTime = 0; p.flying = false;
       p.x = this.meta.spawn.x; p.z = this.meta.spawn.z; p.y = 150;
       this.pendingSpawn = true;
@@ -1125,6 +1557,14 @@
         }
         case 'seed': say('Seme: ' + this.meta.seedText + ' (' + this.meta.seed + ')'); break;
         case 'locate': {
+          if (this.dim === 'nether') {
+            const fs = this.world.gen.fortressesNear(p.x, p.z, 1500);
+            if (!fs.length) { say('Nessuna fortezza vicina'); return; }
+            fs.sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
+            const f = fs[0];
+            say('Fortezza del Nether più vicina: ' + f.x + ' ' + f.y + ' ' + f.z + ' (' + Math.round(Math.hypot(f.x - p.x, f.z - p.z)) + ' blocchi). Usa /tp ' + f.x + ' ' + (f.y + 2) + ' ' + f.z);
+            return;
+          }
           const vs = this.world.gen.villagesNear(p.x, p.z, 3000);
           if (!vs.length) { say('Nessun villaggio entro 3000 blocchi'); return; }
           vs.sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
@@ -1151,15 +1591,40 @@
         }
         case 'spawn': case 'summon': {
           const t = (a[1] || '').toLowerCase();
-          if (!MC.mobs.DEFS[t]) { say('Creature: ' + Object.keys(MC.mobs.DEFS).join(', ')); return; }
+          if (!MC.mobs.DEFS[t] || MC.mobs.DEFS[t].noSpawn) { say('Creature: ' + Object.keys(MC.mobs.DEFS).filter((k) => !MC.mobs.DEFS[k].noSpawn).join(', ')); return; }
           const d = p.dir();
           this.entities.spawnMob(t, p.x + d[0] * 3, p.y + 0.5, p.z + d[2] * 3);
           say('Evocato: ' + t);
           break;
         }
+        case 'dim': case 'dimension': case 'nether': {
+          const v = cmd === 'nether' ? 'nether' : (a[1] || '').toLowerCase();
+          if (v === 'nether' && this.dim !== 'nether') { say('Viaggio nel Nether...'); this.switchDim('nether', p.x / 8, 70, p.z / 8, true); }
+          else if ((v === 'overworld' || v === 'mondo') && this.dim === 'nether') { say('Ritorno al mondo normale...'); this.switchDim('overworld', p.x * 8, 80, p.z * 8, true); }
+          else say('Uso: /dim nether|overworld');
+          break;
+        }
+        case 'xp': {
+          const n = parseInt(a[1], 10);
+          if (isNaN(n)) { say('Uso: /xp <livelli>'); return; }
+          this.addXpLevels(n);
+          say('Livelli di esperienza: ' + p.xpLevel);
+          break;
+        }
+        case 'enchant': {
+          const held = this.inventory.held();
+          const k = (a[1] || '').toLowerCase();
+          const E = MC.ENCH[k];
+          if (!held || !E) { say('Uso: /enchant <' + Object.keys(MC.ENCH).join('|') + '> [livello] (con l\'oggetto in mano)'); return; }
+          const lv = Math.max(1, Math.min(E.max, parseInt(a[2], 10) || E.max));
+          held.ench = Object.assign({}, held.ench || {}, { [k]: lv });
+          this.inventory._ch();
+          say('Incantato: ' + MC.enchName(k, lv));
+          break;
+        }
         case 'kill': if (p.mode === 'survival') { this.lastHurt = 'kill'; p.health = 0; p.dead = true; } else say('Solo in sopravvivenza'); break;
         case 'help': case 'aiuto':
-          say('/time set day|night · /gamemode creative|survival · /tp x y z · /seed · /weather clear|rain · /give oggetto n · /spawn creatura · /locate · /kill');
+          say('/time set day|night · /gamemode creative|survival · /tp x y z · /seed · /weather clear|rain · /give oggetto n · /spawn creatura · /locate · /dim nether|overworld · /xp n · /enchant nome livello · /kill');
           break;
         default: say('Comando sconosciuto. Scrivi /help');
       }
@@ -1180,7 +1645,7 @@
         'XYZ: ' + p.x.toFixed(2) + ' / ' + p.y.toFixed(2) + ' / ' + p.z.toFixed(2),
         'Blocco: ' + bx + ' ' + by + ' ' + bz + '   Chunk: ' + (bx >> 4) + ' ' + (bz >> 4),
         'Direzione: ' + facing + '  (' + yawDeg.toFixed(0) + '°, ' + ((p.pitch * 180) / Math.PI).toFixed(0) + '°)',
-        'Bioma: ' + (MC.BIOMES[b] ? MC.BIOMES[b].name : '?'),
+        'Dimensione: ' + (this.dim === 'nether' ? 'Nether' : 'Mondo normale') + '   Bioma: ' + (MC.BIOMES[b] ? MC.BIOMES[b].name : '?'),
         'Luce: cielo ' + w.getSky(bx, Math.floor(p.y + 1), bz) + '  blocchi ' + w.getBlockLight(bx, Math.floor(p.y + 1), bz),
         'Ora: ' + String(tod).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + '  (tick ' + Math.floor(this.time % 24000) + ')  pioggia ' + (this._rainLevel() * 100).toFixed(0) + '%',
         'Chunk caricati: ' + w.chunks.size + '  sezioni visibili: ' + r.stats.sections + '  triangoli: ' + Math.round(r.stats.tris / 1000) + 'k',
@@ -1196,15 +1661,23 @@
       const r = this.renderer, gl = r.gl, p = this.player, w = this.world;
       r.renderScale = this.settings.scale / 100;
       r.resize();
-      const env = this.env || r.computeEnv(this.time, p.eyeInWater, p.eyeInLava, w.renderDist, this._rainLevel());
-      const bobA = this.settings.bob ? p.bobAmt : 0;
+      const env = this.env || r.computeEnv(this.time, p.eyeInWater, p.eyeInLava, w.renderDist, this._rainLevel(), this.dim === 'nether' ? this._netherFog(0) : null);
+      const bobA = this.settings.bob && !this.thirdPerson ? p.bobAmt : 0;
       const bx = Math.sin(p.bob * Math.PI) * 0.04 * bobA, by = -Math.abs(Math.cos(p.bob * Math.PI)) * 0.06 * bobA;
-      const e = p.eye;
+      const e = p.eye.slice();
       const rx = Math.cos(p.yaw), rz = -Math.sin(p.yaw);
       const sh = this.shake * 0.25;
+      this._updatePlayerModel(dt);
+      if (this.thirdPerson) {
+        // camera dietro o davanti al giocatore, senza entrare nei muri
+        const d = p.dir(), sg = this.thirdPerson === 1 ? -1 : 1;
+        const hit = MC.raycast(w, e[0], e[1], e[2], d[0] * sg, d[1] * sg, d[2] * sg, 4);
+        const t = hit ? Math.max(0.3, hit.t - 0.3) : 4;
+        e[0] += d[0] * sg * t; e[1] += d[1] * sg * t; e[2] += d[2] * sg * t;
+      }
       const cam = {
         x: e[0] + rx * bx + (this.rng() - 0.5) * sh, y: e[1] + by + (this.rng() - 0.5) * sh, z: e[2] + rz * bx + (this.rng() - 0.5) * sh,
-        yaw: p.yaw, pitch: p.pitch,
+        yaw: this.thirdPerson === 2 ? p.yaw + Math.PI : p.yaw, pitch: this.thirdPerson === 2 ? -p.pitch : p.pitch,
         roll: Math.sin(p.bob * Math.PI) * 0.008 * bobA + (p.hurtTime > 0 ? Math.sin(p.hurtTime * 12) * 0.06 : 0),
         fov: this.settings.fov * p.fovMod,
         brightness: this.settings.bright / 100,
@@ -1246,10 +1719,10 @@
 
       r.captureOpaque();
       r.drawTranslucent(env, cam, tsec);
-      if (this.settings.clouds) r.drawClouds(env, cam, tsec);
-      this._renderWeather(env, cam, tsec);
+      if (this.settings.clouds && this.dim !== 'nether') r.drawClouds(env, cam, tsec);
+      if (this.dim !== 'nether') this._renderWeather(env, cam, tsec);
       if (this.target && this.state !== 'dead' && !this.hudHidden) r.drawSelection(this.target.box, cam);
-      if (!this.hudHidden && this.state !== 'dead') this._renderHand(env, cam, dt);
+      if (!this.hudHidden && this.state !== 'dead' && !this.thirdPerson) this._renderHand(env, cam, dt);
       r.endScene(env, tsec);
     }
 
@@ -1344,10 +1817,10 @@
         if (flat) {
           mat4.rotY(T, 0.72 - (d.tool || d.bow ? 0.1 : 0)); mat4.mul(M, M, T);
           if (d.tool) { mat4.rotZ(T, 0.25); mat4.mul(M, M, T); mat4.translate(T, 0, -0.05, 0); mat4.mul(M, M, T); }
-          MC.drawItemModel(r.batch, M, held.id, d.tool ? 0.62 : 0.52, l);
+          MC.drawItemModel(r.batch, M, held.id, d.tool ? 0.62 : 0.52, l, held.ench ? MC.glintCol(performance.now() / 1000) : null);
         } else {
           mat4.translate(T, 0, -0.1, 0); mat4.mul(M, M, T);
-          MC.drawItemModel(r.batch, M, held.id, 0.42, l);
+          MC.drawItemModel(r.batch, M, held.id, 0.42, l, held.ench ? MC.glintCol(performance.now() / 1000) : null);
         }
       } else {
         // braccio

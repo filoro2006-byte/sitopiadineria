@@ -11,6 +11,7 @@
   class Inventory {
     constructor() {
       this.slots = new Array(36).fill(null);
+      this.armor = [null, null, null, null]; // elmo, corazza, gambali, stivali
       this.selected = 0;
       this.onChange = null;
     }
@@ -19,11 +20,11 @@
     held() { return this.slots[this.selected]; }
     _ch() { if (this.onChange) this.onChange(); }
 
-    add(id, count, dmg) {
+    add(id, count, dmg, ench) {
       if (!id || count <= 0) return 0;
       const max = stackOf(id);
       // prima gli stack esistenti
-      if (max > 1) for (let i = 0; i < 36 && count > 0; i++) {
+      if (max > 1 && !ench) for (let i = 0; i < 36 && count > 0; i++) {
         const s = this.slots[i];
         if (s && s.id === id && s.count < max) {
           const n = Math.min(max - s.count, count);
@@ -35,6 +36,7 @@
           const n = Math.min(max, count);
           this.slots[i] = { id, count: n };
           if (dmg) this.slots[i].dmg = dmg;
+          if (ench) this.slots[i].ench = ench;
           count -= n;
         }
       }
@@ -47,6 +49,8 @@
       if (!s) return false;
       const d = MC.blocks[s.id];
       if (!d || !d.durability) return false;
+      const ub = s.ench && s.ench.unbreaking;
+      if (ub && Math.random() > 1 / (ub + 1)) return false;
       s.dmg = (s.dmg || 0) + (n || 1);
       if (s.dmg >= d.durability) { this.slots[this.selected] = null; this._ch(); return true; }
       this._ch();
@@ -76,10 +80,16 @@
       if (s.count <= 0) this.slots[this.selected] = null;
       this._ch();
     }
-    serialize() { return { slots: this.slots.map((s) => (s ? [s.id, s.count, s.dmg || 0] : null)), selected: this.selected }; }
+    serialize() {
+      const ser = (s) => (s ? (s.ench ? [s.id, s.count, s.dmg || 0, s.ench] : [s.id, s.count, s.dmg || 0]) : null);
+      return { slots: this.slots.map(ser), armor: this.armor.map(ser), selected: this.selected };
+    }
     load(d) {
       this.slots = new Array(36).fill(null);
-      if (d && d.slots) d.slots.forEach((s, i) => { if (s && i < 36 && MC.blocks[s[0]]) { this.slots[i] = { id: s[0], count: s[1] }; if (s[2]) this.slots[i].dmg = s[2]; } });
+      this.armor = [null, null, null, null];
+      const de = (s) => { if (!s || !MC.blocks[s[0]]) return null; const o = { id: s[0], count: s[1] }; if (s[2]) o.dmg = s[2]; if (s[3]) o.ench = s[3]; return o; };
+      if (d && d.slots) d.slots.forEach((s, i) => { if (i < 36) this.slots[i] = de(s); });
+      if (d && d.armor) d.armor.forEach((s, i) => { if (i < 4) this.armor[i] = de(s); });
       this.selected = d && d.selected ? d.selected : 0;
       this._ch();
     }
@@ -87,7 +97,7 @@
 
   // ---------------- Ricette ----------------
   const GROUPS = {
-    planks: ['oak_planks', 'birch_planks', 'spruce_planks', 'jungle_planks', 'acacia_planks'],
+    planks: ['oak_planks', 'birch_planks', 'spruce_planks', 'jungle_planks', 'acacia_planks', 'crimson_planks', 'warped_planks'],
     logs: ['oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log'],
   };
   const R = [];
@@ -161,7 +171,40 @@
   r('polished_diorite', 4, [['diorite', 4]], 'table');
   r('polished_granite', 4, [['granite', 4]], 'table');
   r('oak_log_wood', 3, [['oak_log', 4]], 'table');
-  r('bookshelf', 1, [['#planks', 6], ['leather', 1], ['sugar_cane', 3]], 'table');
+  r('paper', 3, [['sugar_cane', 3]], 'table');
+  r('book', 1, [['paper', 3], ['leather', 1]]);
+  r('bookshelf', 1, [['#planks', 6], ['book', 3]], 'table');
+  r('enchanting_table', 1, [['book', 1], ['diamond', 2], ['obsidian', 4]], 'table');
+  // armature
+  for (const [m, mat] of [['leather', 'leather'], ['iron', 'iron_ingot'], ['golden', 'gold_ingot'], ['diamond', 'diamond']]) {
+    r(m + '_helmet', 1, [[mat, 5]], 'table');
+    r(m + '_chestplate', 1, [[mat, 8]], 'table');
+    r(m + '_leggings', 1, [[mat, 7]], 'table');
+    r(m + '_boots', 1, [[mat, 4]], 'table');
+  }
+  // Nether
+  r('crimson_planks', 4, [['crimson_stem', 1]]);
+  r('warped_planks', 4, [['warped_stem', 1]]);
+  r('crimson_slab', 6, [['crimson_planks', 3]], 'table');
+  r('warped_slab', 6, [['warped_planks', 3]], 'table');
+  r('nether_brick', 1, [['netherrack', 1]], 'furnace');
+  r('nether_bricks', 1, [['nether_brick', 4]]);
+  r('red_nether_bricks', 1, [['nether_brick', 2], ['nether_wart_item', 2]]);
+  r('nether_brick_fence', 6, [['nether_bricks', 4], ['nether_brick', 2]], 'table');
+  r('nether_brick_slab', 6, [['nether_bricks', 3]], 'table');
+  r('nether_brick_stairs', 4, [['nether_bricks', 6]], 'table');
+  r('glowstone', 1, [['glowstone_dust', 4]]);
+  r('quartz_block', 1, [['quartz', 4]]);
+  r('quartz_bricks', 4, [['quartz_block', 4]]);
+  r('polished_basalt', 4, [['basalt', 4]]);
+  r('blaze_powder', 2, [['blaze_rod', 1]]);
+  r('magma_block', 1, [['magma_cream', 4]]);
+  r('gold_ingot', 1, [['gold_nugget', 9]]);
+  r('gold_nugget', 9, [['gold_ingot', 1]]);
+  r('bone_meal', 3, [['bone', 1]]);
+  r('gold_ingot', 1, [['nether_gold_ore', 1]], 'furnace');
+  r('quartz', 1, [['nether_quartz_ore', 1]], 'furnace');
+  r('cooked_cod', 1, [['cod', 1]], 'furnace');
   r('tnt', 1, [['gunpowder', 5], ['sand', 4]], 'table');
   r('jack_o_lantern', 1, [['pumpkin', 1], ['torch', 1]]);
   r('white_wool', 1, [['string', 4]]);
@@ -300,6 +343,9 @@
   const FOOD = ['....kkkk.', '...kmmmmk', '..kmmlmmk', '..kmmmmmk', '..kmmmmk.', '.kwkmmk..', 'kwwkkk...', '.kwk.....', '..k......'];
   const FOOD_HALF = ['....kkkk.', '...keeeek', '..kmmeeek', '..kmmeeek', '..kmmeek.', '.kwkmek..', 'kwwkkk...', '.kwk.....', '..k......'];
   const FOOD_EMPTY = ['....kkkk.', '...keeeek', '..keeeeek', '..keeeeek', '..keeeek.', '.kekeek..', 'keekkk...', '.kek.....', '..k......'];
+  const ARMOR_I = ['.kk...kk.', 'kwwkkkwwk', 'kwsssssk.', 'kwsssssk.', '.kwsssk..', '.kwsssk..', '.kssssk..', '.kkkkkk..', '.........'];
+  const ARMOR_H = ['.kk...kk.', 'kwwkkkeek', 'kwssseek.', 'kwssseek.', '.kwseek..', '.kwseek..', '.ksseek..', '.kkkkkk..', '.........'];
+  const ARMOR_E = ['.kk...kk.', 'keekkkeek', 'keeeeeek.', 'keeeeeek.', '.keeeek..', '.keeeek..', '.keeeek..', '.kkkkkk..', '.........'];
   const hudIcons = {};
   function hudIcon(name) {
     if (!hudIcons[name]) {
@@ -312,6 +358,10 @@
       if (name === 'food') hudIcons[name] = pixelIcon(FOOD, fc);
       if (name === 'food_half') hudIcons[name] = pixelIcon(FOOD_HALF, fc);
       if (name === 'food_empty') hudIcons[name] = pixelIcon(FOOD_EMPTY, fc);
+      const ac = { k: '#202020', w: '#ffffff', s: '#c8c8c8', e: '#3a3a3a' };
+      if (name === 'armor') hudIcons[name] = pixelIcon(ARMOR_I, ac);
+      if (name === 'armor_half') hudIcons[name] = pixelIcon(ARMOR_H, ac);
+      if (name === 'armor_empty') hudIcons[name] = pixelIcon(ARMOR_E, ac);
     }
     return hudIcons[name];
   }

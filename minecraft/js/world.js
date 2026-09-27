@@ -63,6 +63,7 @@
     constructor(opts) {
       this.seed = opts.seed >>> 0;
       this.type = opts.type || 'normal';
+      this.nether = this.type === 'nether';
       this.gen = new MC.Generator(this.seed, this.type);
       this.chunks = new Map();
       this.saved = opts.saved || new Map(); // key -> {b, m, s, si}
@@ -201,7 +202,7 @@
       for (let oi = 0; oi < this.offsets.length; oi++) {
         const o = this.offsets[oi];
         const d = o[2];
-        if (d > R + 3) break;
+        if (d > R + 4.5) break;
         const cx = pcx + o[0], cz = pcz + o[1];
         const key = ckey(cx, cz);
         let c = this.chunks.get(key);
@@ -218,13 +219,14 @@
           if (performance.now() - t0 > budgetMs) return work;
           continue;
         }
-        if (c.state === ST.TERRAIN && d <= R + 2 && this._neighborsAtLeast(c, ST.TERRAIN)) {
+        // soglie pensate per le diagonali: ogni stadio richiede i vicini fino a ~1.42 chunk più lontano
+        if (c.state === ST.TERRAIN && d <= R + 3.2 && this._neighborsAtLeast(c, ST.TERRAIN)) {
           this.gen.populate(this, c);
           c.state = ST.POPULATED;
           work++;
           if (performance.now() - t0 > budgetMs) return work;
         }
-        if (c.state === ST.POPULATED && d <= R + 1 && this._neighborsAtLeast(c, ST.POPULATED)) {
+        if (c.state === ST.POPULATED && d <= R + 1.8 && this._neighborsAtLeast(c, ST.POPULATED)) {
           this._lightChunk(c);
           c.state = ST.LIT;
           work++;
@@ -240,7 +242,7 @@
 
     unloadFar(px, pz) {
       const pcx = Math.floor(px) >> 4, pcz = Math.floor(pz) >> 4;
-      const lim = this.renderDist + 4.5;
+      const lim = this.renderDist + 5.5;
       const rm = [];
       for (const [k, c] of this.chunks) {
         const dx = c.cx - pcx, dz = c.cz - pcz;
@@ -501,13 +503,13 @@
 
     _needsUpdate(id) {
       const d = MC.blocks[id];
-      return d && (d.fluid || d.gravity || d.support || d.shape === 'torch' || d.shape === 'cactus' || d.door || d.ladder || d.bed);
+      return d && (d.fluid || d.gravity || d.support || d.shape === 'torch' || d.shape === 'cactus' || d.door || d.ladder || d.bed || d.portal);
     }
 
     _delayFor(id) {
       const f = FLUID[id];
       if (f === 1) return 5;
-      if (f === 2) return 30;
+      if (f === 2) return this.nether ? 10 : 30;
       if (MC.blocks[id].gravity) return 2;
       return 1;
     }
@@ -573,6 +575,15 @@
         if (this.getBlock(x + DV[0] * sgn, y, z + DV[1] * sgn) !== id) { this.setBlock(x, y, z, 0, 0); if (!(m & 4) && this.onDrop) this.onDrop(id, x, y, z, m); }
         return;
       }
+      if (d.portal) {
+        // il portale resta solo se incorniciato da ossidiana o altro portale
+        const m = this.getMeta(x, y, z) & 1;
+        const ok = (b) => b === id || b === B.obsidian;
+        const good = ok(this.getBlock(x, y + 1, z)) && ok(this.getBlock(x, y - 1, z)) &&
+          (m ? ok(this.getBlock(x, y, z + 1)) && ok(this.getBlock(x, y, z - 1)) : ok(this.getBlock(x + 1, y, z)) && ok(this.getBlock(x - 1, y, z)));
+        if (!good) this.setBlock(x, y, z, 0, 0);
+        return;
+      }
       if (d.ladder) {
         const m = this.getMeta(x, y, z);
         const sx = m === 1 ? x - 1 : m === 2 ? x + 1 : x, sz = m === 3 ? z - 1 : m === 4 ? z + 1 : z;
@@ -600,7 +611,7 @@
     _fluidUpdate(x, y, z, id) {
       const F = FLUID[id];
       const meta = this.getMeta(x, y, z);
-      const drop = F === 1 ? 1 : 2;
+      const drop = F === 1 || this.nether ? 1 : 2;
       const other = F === 1 ? B.lava : B.water;
       // interazione lava-acqua
       if (F === 2) {
@@ -693,6 +704,11 @@
             const lx = (rng() * 16) | 0, ly = s * 16 + ((rng() * 16) | 0), lz = (rng() * 16) | 0;
             const i = (ly << 8) | (lz << 4) | lx;
             const b = c.blocks[i];
+            if (b === B.nether_wart) {
+              const m = c.getMeta(i);
+              if (m < 3 && rng() < 0.1) this.setBlock(c.cx * 16 + lx, ly, c.cz * 16 + lz, b, m + 1);
+              continue;
+            }
             if (b === B.wheat || b === B.oak_sapling || b === B.birch_sapling || b === B.spruce_sapling || b === B.jungle_sapling || b === B.acacia_sapling) {
               const x = c.cx * 16 + lx, z = c.cz * 16 + lz;
               const lv = ly + 1 < WH ? Math.max(c.light[i] >> 4, c.light[i] & 15) : 15;

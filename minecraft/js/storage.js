@@ -58,7 +58,7 @@
       const out = new Map();
       const prefix = worldId + ':';
       if (!this.ok) {
-        for (const [k, v] of this.mem.chunks) if (k.startsWith(prefix)) out.set(+k.slice(prefix.length), v);
+        for (const [k, v] of this.mem.chunks) if (k.startsWith(prefix) && !isNaN(+k.slice(prefix.length))) out.set(+k.slice(prefix.length), v);
         return Promise.resolve(out);
       }
       return new Promise((resolve) => {
@@ -70,7 +70,7 @@
           rv.onsuccess = () => {
             const keys = rk.result || [];
             const vals = rv.result || [];
-            for (let i = 0; i < keys.length; i++) out.set(+String(keys[i]).slice(prefix.length), vals[i]);
+            for (let i = 0; i < keys.length; i++) { const k = +String(keys[i]).slice(prefix.length); if (!isNaN(k)) out.set(k, vals[i]); }
             resolve(out);
           };
           rv.onerror = () => resolve(out);

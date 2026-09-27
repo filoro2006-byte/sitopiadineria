@@ -208,3 +208,32 @@ body.touch-mode .inv-hint { display: none; }
 .trade .n { font-size: 13px; color: #222; min-width: 22px; }
 .eat-bar { position: absolute; left: 50%; top: 58%; transform: translateX(-50%); width: 80px; height: 5px; background: rgba(0,0,0,0.5); }
 .eat-bar i { display: block; height: 100%; background: #fff; }
+
+/* --------- Armatura, esperienza, incantesimi --------- */
+.bars-left { display: flex; flex-direction: column; gap: 1px; }
+#armor-bar { display: flex; min-height: 0; }
+#armor-bar img { width: 18px; height: 18px; margin-right: -1px; }
+#xp { position: relative; width: 364px; height: 7px; background: #111; border: 1px solid #000; margin-bottom: 3px; }
+#xp-fill { height: 100%; width: 0; background: linear-gradient(#b8ff5a, #6fcf1f); }
+#xp-level { position: absolute; left: 50%; top: -14px; transform: translateX(-50%); color: #80ff20; font: bold 15px/1 "Trebuchet MS", sans-serif; text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000; }
+#fx-portal { background: radial-gradient(ellipse at center, rgba(140,40,255,0.25), rgba(90,0,180,0.75)); transition: opacity 0.2s; }
+.armor-col { width: 44px; }
+.armor-grid { grid-template-columns: 40px; }
+.slot.ph img { opacity: 0.25; filter: grayscale(1); }
+.slot.ench::after, .hslot.ench::after {
+  content: ""; position: absolute; inset: 4px; pointer-events: none; mix-blend-mode: screen;
+  background: linear-gradient(115deg, transparent 20%, rgba(190,80,255,0.55) 45%, transparent 70%);
+  background-size: 250% 250%; animation: glint 2.4s linear infinite;
+}
+@keyframes glint { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+.ench-wrap { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 6px; }
+.ench-slots { grid-template-columns: repeat(2, 40px); }
+.ench-opts { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 240px; }
+.ench-opt { display: flex; align-items: center; gap: 8px; background: #6b5a4a; color: #e8e0c8; padding: 5px 8px; border: 2px solid #2a2018; cursor: pointer; font-size: 13px; min-height: 34px; }
+.ench-opt:hover { background: #8a7258; }
+.ench-opt.off { opacity: 0.45; cursor: default; background: #4a4038; }
+.ench-opt .clue { flex: 1; font-style: italic; color: #d8c8ff; }
+.ench-opt .lv { color: #80ff20; font-weight: bold; text-shadow: 1px 1px 0 #000; }
+.ench-opt .lap { color: #8fb0ff; }
+#tooltip { white-space: pre-line; }
+@media (max-width: 520px) { #xp { width: 300px; } }

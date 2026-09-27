@@ -12,13 +12,16 @@
     { name: 'Pianura innevata' }, { name: 'Taiga innevata' }, { name: 'Deserto' }, { name: 'Savana' }, { name: 'Giungla' },
     { name: 'Palude' }, { name: 'Calanchi' }, { name: 'Montagne' }, { name: 'Spiaggia' }, { name: 'Fiume' },
     { name: 'Oceano ghiacciato' }, { name: 'Prateria fiorita' }, { name: 'Foresta fitta' }, { name: 'Picchi innevati' },
+    { name: 'Distese del Nether' }, { name: 'Foresta cremisi' }, { name: 'Foresta distorta' }, { name: 'Valle delle anime' }, { name: 'Delta di basalto' },
   ];
   const BI = {
     OCEAN: 0, PLAINS: 1, FOREST: 2, BIRCH: 3, TAIGA: 4, SNOWY_PLAINS: 5, SNOWY_TAIGA: 6, DESERT: 7, SAVANNA: 8, JUNGLE: 9,
     SWAMP: 10, BADLANDS: 11, MOUNTAINS: 12, BEACH: 13, RIVER: 14, FROZEN_OCEAN: 15, MEADOW: 16, DARK_FOREST: 17, PEAKS: 18,
+    WASTES: 19, CRIMSON: 20, WARPED: 21, SOUL: 22, BASALT: 23,
   };
+  const NH = 128, NLAVA = 31; // altezza e livello della lava nel Nether
 
-  const TREE_DENSITY = new Float32Array(19);
+  const TREE_DENSITY = new Float32Array(24);
   TREE_DENSITY[BI.PLAINS] = 0.0025; TREE_DENSITY[BI.FOREST] = 0.05; TREE_DENSITY[BI.BIRCH] = 0.045; TREE_DENSITY[BI.TAIGA] = 0.045;
   TREE_DENSITY[BI.SNOWY_PLAINS] = 0.002; TREE_DENSITY[BI.SNOWY_TAIGA] = 0.035; TREE_DENSITY[BI.SAVANNA] = 0.006; TREE_DENSITY[BI.JUNGLE] = 0.1;
   TREE_DENSITY[BI.SWAMP] = 0.02; TREE_DENSITY[BI.MOUNTAINS] = 0.004; TREE_DENSITY[BI.MEADOW] = 0.0012; TREE_DENSITY[BI.DARK_FOREST] = 0.085;
@@ -130,6 +133,10 @@
 
     fillClimate(c) {
       const bx = c.cx * 16, bz = c.cz * 16;
+      if (this.type === 'nether') {
+        for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) { const ci = z * 16 + x; c.biome[ci] = this.netherBiome(bx + x, bz + z); c.grass.fill(128, ci * 3, ci * 3 + 3); c.foliage.fill(128, ci * 3, ci * 3 + 3); }
+        return;
+      }
       for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
         if (this.type === 'flat') { col.h = SEA; col.T = 0; col.H = -0.5; col.mount = 0; col.river = 0; col.swamp = 0; col.bad = 0; }
         else this.column(bx + x, bz + z, col);
@@ -141,6 +148,7 @@
 
     generateTerrain(c) {
       if (this.type === 'flat') return this.generateFlat(c);
+      if (this.type === 'nether') return this.generateNether(c);
       const bx = c.cx * 16, bz = c.cz * 16;
       const blocks = c.blocks;
       // colonne con bordo di 1 per la pendenza
@@ -351,6 +359,7 @@
     // Scrive solo dentro il chunk c; considera anche gli alberi dei chunk vicini
     populate(world, c) {
       if (this.type === 'flat') return;
+      if (this.type === 'nether') return this.populateNether(world, c);
       const bx = c.cx * 16, bz = c.cz * 16;
       const blocks = c.blocks;
       const M = 6;
@@ -897,12 +906,330 @@
 
     biomeAt(x, z) {
       if (this.type === 'flat') return BI.PLAINS;
+      if (this.type === 'nether') return this.netherBiome(x, z);
       this.column(x, z, col);
       return this.biomeOf(col);
     }
   }
 
+  // ---------------- Nether ----------------
+  const GP = Generator.prototype;
+  GP.netherBiome = function (x, z) {
+    const a = this.nTemp.fbm2(x / 260, z / 260, 2) + this.nDetail.noise2D(x / 40, z / 40) * 0.04;
+    const b = this.nHum.fbm2(x / 260 + 50, z / 260, 2);
+    if (a > 0.28) return b > 0 ? BI.CRIMSON : BI.WARPED;
+    if (a < -0.3) return b > 0.05 ? BI.SOUL : BI.BASALT;
+    return BI.WASTES;
+  };
+
+  GP.generateNether = function (c) {
+    const bx = c.cx * 16, bz = c.cz * 16;
+    const blocks = c.blocks;
+    for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
+      const ci = z * 16 + x;
+      c.biome[ci] = this.netherBiome(bx + x, bz + z);
+      c.grass[ci * 3] = c.grass[ci * 3 + 1] = c.grass[ci * 3 + 2] = 128;
+      c.foliage[ci * 3] = c.foliage[ci * 3 + 1] = c.foliage[ci * 3 + 2] = 128;
+    }
+    // densità 3D su griglia (passo 4 x 8 x 4)
+    const GY = NH / 8 + 1;
+    const N3 = new Float32Array(5 * GY * 5);
+    for (let gz = 0; gz < 5; gz++) for (let gx = 0; gx < 5; gx++) {
+      const wx = bx + gx * 4, wz = bz + gz * 4;
+      const big = this.nCont.fbm2(wx / 180, wz / 180, 2);
+      for (let gy = 0; gy < GY; gy++) {
+        const y = gy * 8;
+        let d = this.n3.fbm3(wx / 56, y / 28, wz / 56, 3) * 1.1 + this.nCaveA.noise3D(wx / 22, y / 14, wz / 22) * 0.25;
+        d += Math.max(0, (26 - y) / 14) * 1.1;
+        d += Math.max(0, (y - 96) / 22) * 1.3;
+        d -= 0.18 + big * 0.2;
+        N3[(gz * 5 + gx) * GY + gy] = d;
+      }
+    }
+    const col3 = new Float32Array(GY);
+    for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
+      const gx = x >> 2, gz = z >> 2, fx = (x & 3) / 4, fz = (z & 3) / 4;
+      const i00 = (gz * 5 + gx) * GY, i10 = (gz * 5 + gx + 1) * GY, i01 = ((gz + 1) * 5 + gx) * GY, i11 = ((gz + 1) * 5 + gx + 1) * GY;
+      for (let g = 0; g < GY; g++) {
+        const a = N3[i00 + g] + (N3[i10 + g] - N3[i00 + g]) * fx;
+        const b2 = N3[i01 + g] + (N3[i11 + g] - N3[i01 + g]) * fx;
+        col3[g] = a + (b2 - a) * fz;
+      }
+      const wx = bx + x, wz = bz + z;
+      const ci = z * 16 + x;
+      const biome = c.biome[ci];
+      const sn = this.nSurf.noise2D(wx / 14, wz / 14);
+      let above = 0; // blocchi solidi consecutivi sopra
+      for (let y = NH - 1; y >= 0; y--) {
+        const i = (y << 8) | (z << 4) | x;
+        let b;
+        if (y === 0 || y === NH - 1) b = B.bedrock;
+        else if (y <= 4 && hash3(this.seed, wx, y, wz) < (5 - y) / 5.5) b = B.bedrock;
+        else if (y >= NH - 5 && hash3(this.seed ^ 77, wx, y, wz) < (y - (NH - 6)) / 5.5) b = B.bedrock;
+        else {
+          const gy = y >> 3, fy = (y & 7) / 8;
+          const n = col3[gy] + (col3[gy + 1] - col3[gy]) * fy;
+          b = n > 0 ? B.netherrack : (y <= NLAVA ? B.lava : 0);
+        }
+        if (b === B.netherrack) {
+          const exposed = above === 0; // aria sopra
+          if (biome === BI.CRIMSON && exposed) b = B.crimson_nylium;
+          else if (biome === BI.WARPED && exposed) b = B.warped_nylium;
+          else if (biome === BI.SOUL && above < 3 + (sn > 0 ? 1 : 0)) b = sn > 0.1 ? B.soul_sand : B.soul_soil;
+          else if (biome === BI.BASALT) b = sn > 0.2 ? B.blackstone : B.basalt;
+          else if (biome === BI.WASTES && exposed && y >= NLAVA - 1 && y <= NLAVA + 3) b = sn > 0.35 ? B.soul_sand : sn < -0.45 ? B.gravel : b;
+          above++;
+        } else if (b === B.bedrock) above++;
+        else above = 0;
+        blocks[i] = b;
+      }
+      // pavimento più basso sopra la lava (per le strutture dei vicini)
+      let sy = NLAVA + 1;
+      while (sy < NH - 8 && !(blocks[(sy << 8) | (z << 4) | x] === 0 && MC.BL.SOLID[blocks[((sy - 1) << 8) | (z << 4) | x]])) sy++;
+      c.surf[ci] = sy - 1;
+      c.surfId[ci] = blocks[((sy - 1) << 8) | (z << 4) | x];
+    }
+    // minerali e magma
+    const rng = mulberry32((this.seed ^ Math.imul(c.cx, 0x632be5ab) ^ Math.imul(c.cz, 0x85157af5) ^ 0x4e7e) >>> 0);
+    const vein = (id, count, size, ymin, ymax, repl) => {
+      for (let n = 0; n < count; n++) {
+        let x = Math.floor(rng() * 16), z = Math.floor(rng() * 16), y = ymin + Math.floor(rng() * (ymax - ymin));
+        for (let k = 0; k < size; k++) {
+          if (x >= 0 && x < 16 && z >= 0 && z < 16 && y > 0 && y < NH - 1) {
+            const i = (y << 8) | (z << 4) | x;
+            if (repl.includes(blocks[i])) blocks[i] = id;
+          }
+          const d = Math.floor(rng() * 6);
+          if (d === 0) x++; else if (d === 1) x--; else if (d === 2) z++; else if (d === 3) z--; else if (d === 4) y++; else y--;
+        }
+      }
+    };
+    const NR = [B.netherrack];
+    vein(B.nether_quartz_ore, 14, 9, 10, 118, NR);
+    vein(B.nether_gold_ore, 9, 7, 10, 118, NR);
+    vein(B.magma_block, 4, 14, NLAVA - 4, NLAVA + 4, [B.netherrack, B.basalt, B.blackstone]);
+    vein(B.gravel, 2, 20, 5, 110, NR);
+    vein(B.soul_sand, 2, 16, 20, 70, NR);
+    // grappoli di pietraluce appesi al soffitto
+    for (let n = 0; n < 3; n++) {
+      if (rng() < 0.35) continue;
+      const x = 2 + Math.floor(rng() * 12), z = 2 + Math.floor(rng() * 12);
+      let y = NH - 8;
+      while (y > NLAVA + 6 && !(blocks[(y << 8) | (z << 4) | x] === 0 && MC.BL.SOLID[blocks[((y + 1) << 8) | (z << 4) | x]])) y--;
+      if (y <= NLAVA + 6) continue;
+      const size = 12 + Math.floor(rng() * 20);
+      for (let k = 0; k < size; k++) {
+        const dx = Math.round((rng() - 0.5) * 4), dz = Math.round((rng() - 0.5) * 4), dy = -Math.floor(rng() * rng() * 6);
+        const px = x + dx, pz = z + dz, py = y + dy;
+        if (px < 0 || px > 15 || pz < 0 || pz > 15) continue;
+        const i = (py << 8) | (pz << 4) | px;
+        if (blocks[i] === 0 && (blocks[i + 256] !== 0 || k < 3)) blocks[i] = B.glowstone;
+      }
+    }
+    // colonne di basalto nei delta
+    for (let n = 0; n < 4; n++) {
+      const x = Math.floor(rng() * 16), z = Math.floor(rng() * 16);
+      if (c.biome[z * 16 + x] !== BI.BASALT) continue;
+      let y = c.surf[z * 16 + x] + 1;
+      const h = 3 + Math.floor(rng() * 9);
+      for (let k = 0; k < h && y + k < NH - 2; k++) { const i = ((y + k) << 8) | (z << 4) | x; if (blocks[i] !== 0) break; blocks[i] = B.basalt; }
+    }
+  };
+
+  // funghi giganti (possono sconfinare: scrivono solo nel chunk tramite put)
+  GP.hugeFungus = function (x, y, z, rng, put, warped) {
+    const stemB = warped ? B.warped_stem : B.crimson_stem, wart = warped ? B.warped_wart_block : B.nether_wart_block;
+    const h = 5 + Math.floor(rng() * 8);
+    for (let k = 1; k <= h; k++) put(x, y + k, z, stemB, 1);
+    const top = y + h;
+    const r = h > 9 ? 3 : 2;
+    for (let dy = -2; dy <= 1; dy++) {
+      const rr = dy === 1 ? r - 1 : r;
+      for (let dx = -rr; dx <= rr; dx++) for (let dz = -rr; dz <= rr; dz++) {
+        const edge = Math.abs(dx) === rr || Math.abs(dz) === rr;
+        if (dy < 1 && !edge && dy > -2) continue; // cappello cavo
+        if (Math.abs(dx) === rr && Math.abs(dz) === rr && rng() < 0.6) continue;
+        const v = rng();
+        put(x + dx, top + dy, z + dz, v < 0.08 ? B.shroomlight : wart, 2);
+      }
+    }
+    // festoni sotto il cappello
+    for (let n = 0; n < 6; n++) {
+      const dx = Math.floor(rng() * (2 * r + 1)) - r, dz = Math.floor(rng() * (2 * r + 1)) - r;
+      if (Math.abs(dx) !== r && Math.abs(dz) !== r) continue;
+      const len = 1 + Math.floor(rng() * 3);
+      for (let k = 0; k < len; k++) put(x + dx, top - 3 - k, z + dz, wart, 2);
+    }
+  };
+
+  GP.populateNether = function (world, c) {
+    const bx = c.cx * 16, bz = c.cz * 16;
+    const blocks = c.blocks;
+    const put = (x, y, z, id, mode) => {
+      x -= bx; z -= bz;
+      if (x < 0 || x > 15 || z < 0 || z > 15 || y < 1 || y >= NH - 1) return;
+      const i = (y << 8) | (z << 4) | x;
+      const cur = blocks[i];
+      if (mode === 1) { if (cur === 0 || cur === B.nether_wart_block || cur === B.warped_wart_block || cur === B.crimson_roots || cur === B.warped_roots) blocks[i] = id; }
+      else if (cur === 0 || cur === B.crimson_roots || cur === B.warped_roots || cur === B.crimson_fungus || cur === B.warped_fungus) blocks[i] = id;
+    };
+    const M = 4;
+    for (let wz = bz - M; wz < bz + 16 + M; wz++) for (let wx = bx - M; wx < bx + 16 + M; wx++) {
+      const ch = world.getChunk(wx >> 4, wz >> 4);
+      if (!ch || ch.state < 1) continue;
+      const ci = ((wz & 15) << 4) | (wx & 15);
+      const biome = ch.biome[ci], sid = ch.surfId[ci], s = ch.surf[ci];
+      if (biome !== BI.CRIMSON && biome !== BI.WARPED) continue;
+      if (sid !== B.crimson_nylium && sid !== B.warped_nylium) continue;
+      const r = hash2(this.seed ^ 0xf0f0, wx, wz);
+      if (r < 0.018) {
+        const rng = mulberry32((this.seed ^ Math.imul(wx, 0x2545f491) ^ Math.imul(wz, 0x9e3779b9) ^ 0x51) >>> 0);
+        this.hugeFungus(wx, s, wz, rng, put, sid === B.warped_nylium);
+      }
+    }
+    // piccole piante su tutti i pavimenti del chunk
+    for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
+      const wx = bx + x, wz = bz + z;
+      for (let y = NLAVA + 1; y < NH - 3; y++) {
+        const i = (y << 8) | (z << 4) | x;
+        const b = blocks[i];
+        if (blocks[i + 256] !== 0) continue;
+        if (b !== B.crimson_nylium && b !== B.warped_nylium && b !== B.soul_sand && b !== B.netherrack) continue;
+        const h = hash3(this.seed ^ 0x3a3a, wx, y, wz);
+        const warped = b === B.warped_nylium;
+        if (b === B.crimson_nylium || warped) {
+          if (h < 0.25) blocks[i + 256] = warped ? B.warped_roots : B.crimson_roots;
+          else if (h < 0.29) blocks[i + 256] = warped ? B.warped_fungus : B.crimson_fungus;
+        } else if (b === B.soul_sand && h < 0.012) {
+          // resti fossili: piccoli massi d'ossa sostituiti da quarzo
+          blocks[i + 256] = B.nether_wart; c.setMeta && c.setMeta(i + 256, 3);
+        }
+      }
+    }
+    this._populateFortress(c);
+  };
+
+  // ---------------- Fortezze del Nether ----------------
+  GP.fortressInCell = function (gx, gz) {
+    if (!this._fcache) this._fcache = new Map();
+    const key = gx * 100003 + gz;
+    if (this._fcache.has(key)) return this._fcache.get(key);
+    let f = null;
+    const FC = 288;
+    if (hash2(this.seed ^ 0xf047, gx, gz) < 0.55) {
+      const rng = mulberry32((hash2(this.seed ^ 0x77f, gx, gz) * 4294967296) >>> 0);
+      const x = gx * FC + 60 + Math.floor(rng() * (FC - 120)), z = gz * FC + 60 + Math.floor(rng() * (FC - 120));
+      const y = 60 + Math.floor(rng() * 12);
+      const arms = [];
+      for (let d = 0; d < 4; d++) if (rng() < 0.85 || d === 0) arms.push({ d, len: 26 + Math.floor(rng() * 34), room: rng() < 0.5 });
+      f = { x, y, z, arms, R: 80 };
+    }
+    this._fcache.set(key, f);
+    return f;
+  };
+  GP.fortressesNear = function (x, z, r) {
+    const FC = 288, out = [];
+    for (let gz = Math.floor((z - r - 100) / FC); gz <= Math.floor((z + r + 100) / FC); gz++)
+      for (let gx = Math.floor((x - r - 100) / FC); gx <= Math.floor((x + r + 100) / FC); gx++) {
+        const f = this.fortressInCell(gx, gz);
+        if (f && Math.abs(f.x - x) < r + f.R && Math.abs(f.z - z) < r + f.R) out.push(f);
+      }
+    return out;
+  };
+  GP.inFortress = function (x, y, z) {
+    for (const f of this.fortressesNear(x, z, 0)) {
+      if (Math.abs(y - f.y) > 12) continue;
+      if (Math.abs(x - f.x) <= 9 && Math.abs(z - f.z) <= 9) return true;
+      for (const a of f.arms) {
+        const DV = [[0, -1], [1, 0], [0, 1], [-1, 0]][a.d];
+        const t = (x - f.x) * DV[0] + (z - f.z) * DV[1], side = Math.abs((x - f.x) * DV[1] - (z - f.z) * DV[0]);
+        if (t > 0 && t < a.len + 8 && side <= 4) return true;
+      }
+    }
+    return false;
+  };
+  GP._populateFortress = function (c) {
+    const bx = c.cx * 16, bz = c.cz * 16;
+    const fs = this.fortressesNear(bx + 8, bz + 8, 16);
+    if (!fs.length) return;
+    const blocks = c.blocks;
+    const setW = (x, y, z, id, meta) => {
+      if (x < bx || x > bx + 15 || z < bz || z > bz + 15 || y < 1 || y >= NH - 1) return;
+      const i = (y << 8) | ((z - bz) << 4) | (x - bx);
+      blocks[i] = id; c.setMeta(i, meta || 0);
+    };
+    const getW = (x, y, z) => blocks[(y << 8) | ((z - bz) << 4) | (x - bx)];
+    const NB = B.nether_bricks, NF = B.nether_brick_fence;
+    for (const f of fs) {
+      const Y = f.y;
+      // piattaforma centrale 19x19 con una stanza
+      const box = (x0, y0, z0, x1, y1, z1, id, meta) => {
+        for (let y = y0; y <= y1; y++) for (let z = Math.max(z0, bz); z <= Math.min(z1, bz + 15); z++) for (let x = Math.max(x0, bx); x <= Math.min(x1, bx + 15); x++) setW(x, y, z, id, meta);
+      };
+      const pillar = (x, z) => {
+        if (x < bx || x > bx + 15 || z < bz || z > bz + 15) return;
+        for (let y = Y - 1; y > 1; y--) { const b = getW(x, y, z); if (b !== 0 && b !== B.lava) break; setW(x, y, z, NB); }
+      };
+      // centro
+      box(f.x - 9, Y, f.z - 9, f.x + 9, Y, f.z + 9, NB);
+      box(f.x - 9, Y + 1, f.z - 9, f.x + 9, Y + 7, f.z + 9, 0);
+      // muri della stanza
+      for (let y = Y + 1; y <= Y + 6; y++) for (let t = -9; t <= 9; t++) {
+        for (const [x, z] of [[f.x + t, f.z - 9], [f.x + t, f.z + 9], [f.x - 9, f.z + t], [f.x + 9, f.z + t]]) {
+          const door = Math.abs(t) <= 2 && y <= Y + 4;
+          const win = y === Y + 3 && Math.abs(t) % 4 === 2 && Math.abs(t) > 3;
+          if (door) continue;
+          setW(x, y, z, win ? NF : NB);
+        }
+      }
+      box(f.x - 9, Y + 7, f.z - 9, f.x + 9, Y + 7, f.z + 9, NB);
+      // giardino di verruche con scale
+      box(f.x - 5, Y + 1, f.z - 5, f.x + 5, Y + 1, f.z - 5, B.nether_brick_stairs, 2);
+      box(f.x - 5, Y + 1, f.z + 5, f.x + 5, Y + 1, f.z + 5, B.nether_brick_stairs, 0);
+      box(f.x - 4, Y + 1, f.z - 4, f.x + 4, Y + 1, f.z + 4, B.soul_sand);
+      box(f.x - 4, Y + 2, f.z - 4, f.x + 4, Y + 2, f.z + 4, B.nether_wart, 3);
+      box(f.x - 1, Y + 1, f.z - 1, f.x + 1, Y + 1, f.z + 1, NB);
+      box(f.x - 1, Y + 2, f.z - 1, f.x + 1, Y + 2, f.z + 1, 0);
+      setW(f.x, Y + 2, f.z, B.chest, 4 | 8);
+      for (const [x, z] of [[f.x - 8, f.z - 8], [f.x + 8, f.z - 8], [f.x - 8, f.z + 8], [f.x + 8, f.z + 8]]) setW(x, Y + 6, z, B.glowstone);
+      for (let t = -9; t <= 9; t += 6) { pillar(f.x + t, f.z - 9); pillar(f.x + t, f.z + 9); pillar(f.x - 9, f.z + t); pillar(f.x + 9, f.z + t); }
+      // ponti
+      for (const a of f.arms) {
+        const DV = [[0, -1], [1, 0], [0, 1], [-1, 0]][a.d];
+        const PX = -DV[1], PZ = DV[0];
+        for (let t = 10; t <= a.len; t++) {
+          const cx = f.x + DV[0] * t, cz = f.z + DV[1] * t;
+          for (let s = -2; s <= 2; s++) {
+            const x = cx + PX * s, z = cz + PZ * s;
+            setW(x, Y, z, NB);
+            for (let y = Y + 1; y <= Y + 4; y++) setW(x, y, z, 0);
+            if (Math.abs(s) === 2) { setW(x, Y + 1, z, NB); if (t % 3 === 0) setW(x, Y + 2, z, NF); }
+          }
+          setW(cx + PX * 3, Y - 1, cz + PZ * 3, 0);
+          if (t % 8 === 4) { pillar(cx + PX * 2, cz + PZ * 2); pillar(cx - PX * 2, cz - PZ * 2); }
+        }
+        // stanza in fondo al ponte (corridoio coperto)
+        if (a.room) {
+          const cx = f.x + DV[0] * (a.len + 4), cz = f.z + DV[1] * (a.len + 4);
+          box(cx - 4, Y, cz - 4, cx + 4, Y, cz + 4, NB);
+          box(cx - 4, Y + 1, cz - 4, cx + 4, Y + 5, cz + 4, 0);
+          for (let y = Y + 1; y <= Y + 5; y++) for (let t = -4; t <= 4; t++) {
+            for (const [x, z] of [[cx + t, cz - 4], [cx + t, cz + 4], [cx - 4, cz + t], [cx + 4, cz + t]]) {
+              const toBridge = (x - cx) * DV[0] + (z - cz) * DV[1] < 0 && Math.abs((x - cx) * PX + (z - cz) * PZ) <= 2 && y <= Y + 3;
+              if (!toBridge) setW(x, y, z, y === Y + 3 && Math.abs(t) === 2 ? NF : NB);
+            }
+          }
+          box(cx - 4, Y + 6, cz - 4, cx + 4, Y + 6, cz + 4, NB);
+          setW(cx, Y + 5, cz, B.glowstone);
+          setW(cx + DV[0] * 2, Y + 1, cz + DV[1] * 2, B.chest, 4 | 8);
+          pillar(cx - 4, cz - 4); pillar(cx + 4, cz - 4); pillar(cx - 4, cz + 4); pillar(cx + 4, cz + 4);
+        }
+      }
+    }
+  };
+
   MC.Generator = Generator;
+  MC.NH = NH;
   MC.BIOMES = BIOMES;
   MC.BI = BI;
   MC.WH = WH;

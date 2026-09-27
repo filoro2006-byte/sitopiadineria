@@ -22,6 +22,7 @@
       this._btn('t-sneak', () => game.keys.add('ShiftLeft'), () => game.keys.delete('ShiftLeft'));
       this._btn('t-inv', () => { if (game.state === 'playing') game.openInventory(null); else if (game.state === 'inventory') game.closeInventory(); });
       this._btn('t-pause', () => { if (game.state === 'playing') game.pause(); });
+      this._btn('t-view', () => { if (game.state === 'playing') game.cycleView(); });
       this._btn('t-drop', () => { if (game.state === 'playing') game.dropHeld(false); });
       this._btn('t-break', () => { game.mouse.left = true; game.breakCd = 0; }, () => { game.mouse.left = false; game.breaking = null; });
       document.getElementById('hotbar').addEventListener('touchstart', (e) => {
